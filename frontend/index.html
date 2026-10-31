@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>পাহাড় বেয়ে ওঠা — Typing Race</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+  <div id="app">
+    <!-- AUTH VIEW -->
+    <div id="view-auth" class="view">
+      <div class="auth-card">
+        <h1>🏔️ পাহাড় বেয়ে ওঠা</h1>
+        <p class="subtitle">Multiplayer Typing Race</p>
+
+        <div class="tabs">
+          <button class="tab active" data-tab="login">লগইন</button>
+          <button class="tab" data-tab="register">রেজিস্টার</button>
+        </div>
+
+        <form id="loginForm" class="auth-form">
+          <input type="text" id="loginUser" placeholder="Username" required minlength="3" maxlength="20" autocomplete="username" />
+          <input type="password" id="loginPass" placeholder="Password" required minlength="4" autocomplete="current-password" />
+          <button type="submit" class="btn primary">লগইন</button>
+          <p class="error" id="loginError"></p>
+        </form>
+
+        <form id="registerForm" class="auth-form hidden">
+          <input type="text" id="regUser" placeholder="Username (3-20 অক্ষর)" required minlength="3" maxlength="20" autocomplete="username" />
+          <input type="password" id="regPass" placeholder="Password (কমপক্ষে ৪ অক্ষর)" required minlength="4" autocomplete="new-password" />
+          <button type="submit" class="btn primary">অ্যাকাউন্ট তৈরি করো</button>
+          <p class="error" id="regError"></p>
+        </form>
+      </div>
+    </div>
+
+    <!-- LOBBY VIEW -->
+    <div id="view-lobby" class="view hidden">
+      <header class="topbar">
+        <h2>🏔️ পাহাড় বেয়ে ওঠা</h2>
+        <div class="user-info">
+          <span id="currentUser"></span>
+          <button id="logoutBtn" class="btn small">লগআউট</button>
+        </div>
+      </header>
+
+      <div class="lobby-grid">
+        <div class="panel">
+          <h3>রুম তৈরি করো</h3>
+          <p class="hint">কাস্টম টেক্সট পেস্ট করতে পারো (ঐচ্ছিক)</p>
+          <textarea id="customTextInput" placeholder="এখানে নিজের টেক্সট পেস্ট করো... (কমপক্ষে ২০ অক্ষর)" rows="4"></textarea>
+          <div class="row">
+            <label>ম্যাক্স প্লেয়ার:</label>
+            <select id="maxPlayers">
+              <option value="5">৫</option>
+              <option value="6">৬</option>
+              <option value="7">৭</option>
+              <option value="8" selected>৮</option>
+            </select>
+          </div>
+          <button id="createRoomBtn" class="btn primary">কাস্টম রুম তৈরি করো</button>
+        </div>
+
+        <div class="panel">
+          <h3>রুমে জয়েন করো</h3>
+          <input type="text" id="joinCode" placeholder="রুম কোড (৬ অক্ষর)" maxlength="6" style="text-transform:uppercase" />
+          <button id="joinRoomBtn" class="btn primary">জয়েন</button>
+          <p class="error" id="joinError"></p>
+        </div>
+
+        <div class="panel full">
+          <h3>🏆 লিডারবোর্ড</h3>
+          <div id="leaderboard" class="leaderboard">লোড হচ্ছে...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ROOM VIEW (Waiting) -->
+    <div id="view-room" class="view hidden">
+      <header class="topbar">
+        <h2>রুম: <span id="roomCodeDisplay"></span></h2>
+        <button id="leaveRoomBtn" class="btn small danger">ছেড়ে দাও</button>
+      </header>
+
+      <div class="room-content">
+        <div class="players-list panel">
+          <h3>প্লেয়ার (<span id="playerCount">0</span>/<span id="maxPlayersDisplay">8</span>)</h3>
+          <ul id="playersUl"></ul>
+        </div>
+
+        <div class="room-controls panel">
+          <h3>সেটিংস</h3>
+          <div id="hostControls" class="hidden">
+            <label>কাস্টম টেক্সট:</label>
+            <textarea id="roomCustomText" rows="3" placeholder="টেক্সট পরিবর্তন করতে পারো..."></textarea>
+            <button id="updateTextBtn" class="btn">টেক্সট আপডেট</button>
+            <hr />
+            <label>ভাষা (ডিফল্ট টেক্সটের জন্য):</label>
+            <select id="raceLang">
+              <option value="bn">বাংলা</option>
+              <option value="en">English</option>
+            </select>
+            <button id="startRaceBtn" class="btn primary large">রেস শুরু করো</button>
+          </div>
+          <div id="guestWait">
+            <p>হোস্ট রেস শুরু করার জন্য অপেক্ষা করছো...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RACE VIEW -->
+    <div id="view-race" class="view hidden">
+      <div class="race-header">
+        <div class="stats-bar">
+          <span>WPM: <strong id="liveWpm">0</strong></span>
+          <span>Accuracy: <strong id="liveAcc">100%</strong></span>
+          <span>Time: <strong id="liveTime">0.0s</strong></span>
+        </div>
+      </div>
+
+      <!-- Mountain Track -->
+      <div class="mountain-track" id="mountainTrack">
+        <div class="peak">🏁 চূড়া</div>
+        <div class="climbers-container" id="climbersContainer"></div>
+      </div>
+
+      <div class="typing-area">
+        <div class="quote-display" id="quoteDisplay"></div>
+        <textarea id="typeInput" class="type-input" placeholder="এখানে টাইপ করো..." rows="3" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+      </div>
+    </div>
+
+    <!-- RESULT VIEW -->
+    <div id="view-result" class="view hidden">
+      <div class="result-card">
+        <h2>রেস শেষ! 🏁</h2>
+        <div id="resultList"></div>
+        <button id="backToLobbyBtn" class="btn primary">লবিতে ফিরে যাও</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
