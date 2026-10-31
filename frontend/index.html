@@ -1,144 +1,162 @@
 <!DOCTYPE html>
-<html lang="bn">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>পাহাড় বেয়ে ওঠা — Typing Race</title>
+  <title>Summit Type — Multiplayer Typing Race</title>
   <link rel="stylesheet" href="css/style.css" />
   <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
   <div id="app">
-    <!-- AUTH VIEW -->
+    <!-- AUTH -->
     <div id="view-auth" class="view">
       <div class="auth-card">
-        <h1>🏔️ পাহাড় বেয়ে ওঠা</h1>
+        <div class="logo">⛰</div>
+        <h1>Summit Type</h1>
         <p class="subtitle">Multiplayer Typing Race</p>
 
         <div class="tabs">
-          <button class="tab active" data-tab="login">লগইন</button>
-          <button class="tab" data-tab="register">রেজিস্টার</button>
+          <button class="tab active" data-tab="login">Login</button>
+          <button class="tab" data-tab="register">Register</button>
         </div>
 
         <form id="loginForm" class="auth-form">
           <input type="text" id="loginUser" placeholder="Username" required minlength="3" maxlength="20" autocomplete="username" />
           <input type="password" id="loginPass" placeholder="Password" required minlength="4" autocomplete="current-password" />
-          <button type="submit" class="btn primary">লগইন</button>
+          <button type="submit" class="btn primary">Login</button>
           <p class="error" id="loginError"></p>
         </form>
 
         <form id="registerForm" class="auth-form hidden">
-          <input type="text" id="regUser" placeholder="Username (3-20 অক্ষর)" required minlength="3" maxlength="20" autocomplete="username" />
-          <input type="password" id="regPass" placeholder="Password (কমপক্ষে ৪ অক্ষর)" required minlength="4" autocomplete="new-password" />
-          <button type="submit" class="btn primary">অ্যাকাউন্ট তৈরি করো</button>
+          <input type="text" id="regUser" placeholder="Username (3–20 characters)" required minlength="3" maxlength="20" autocomplete="username" />
+          <input type="password" id="regPass" placeholder="Password (min 4 characters)" required minlength="4" autocomplete="new-password" />
+          <button type="submit" class="btn primary">Create Account</button>
           <p class="error" id="regError"></p>
         </form>
       </div>
     </div>
 
-    <!-- LOBBY VIEW -->
+    <!-- LOBBY -->
     <div id="view-lobby" class="view hidden">
       <header class="topbar">
-        <h2>🏔️ পাহাড় বেয়ে ওঠা</h2>
+        <div class="brand">
+          <span class="logo-sm">⛰</span>
+          <h2>Summit Type</h2>
+        </div>
         <div class="user-info">
-          <span id="currentUser"></span>
-          <button id="logoutBtn" class="btn small">লগআউট</button>
+          <span id="currentUser" class="username"></span>
+          <button id="logoutBtn" class="btn ghost">Logout</button>
         </div>
       </header>
 
       <div class="lobby-grid">
         <div class="panel">
-          <h3>রুম তৈরি করো</h3>
-          <p class="hint">কাস্টম টেক্সট পেস্ট করতে পারো (ঐচ্ছিক)</p>
-          <textarea id="customTextInput" placeholder="এখানে নিজের টেক্সট পেস্ট করো... (কমপক্ষে ২০ অক্ষর)" rows="4"></textarea>
+          <h3>Create Room</h3>
+          <p class="hint">Optionally paste custom text for the race</p>
+          <textarea id="customTextInput" placeholder="Paste custom text here (min 20 characters)..." rows="4"></textarea>
           <div class="row">
-            <label>ম্যাক্স প্লেয়ার:</label>
+            <label>Max players</label>
             <select id="maxPlayers">
-              <option value="5">৫</option>
-              <option value="6">৬</option>
-              <option value="7">৭</option>
-              <option value="8" selected>৮</option>
+              <option value="5">5</option>
+              <option value="6">6</option>
+              <option value="7">7</option>
+              <option value="8" selected>8</option>
             </select>
           </div>
-          <button id="createRoomBtn" class="btn primary">কাস্টম রুম তৈরি করো</button>
+          <button id="createRoomBtn" class="btn primary full">Create Room</button>
+          <p class="error" id="createError"></p>
         </div>
 
         <div class="panel">
-          <h3>রুমে জয়েন করো</h3>
-          <input type="text" id="joinCode" placeholder="রুম কোড (৬ অক্ষর)" maxlength="6" style="text-transform:uppercase" />
-          <button id="joinRoomBtn" class="btn primary">জয়েন</button>
+          <h3>Join Room</h3>
+          <p class="hint">Enter the 6-character room code</p>
+          <input type="text" id="joinCode" placeholder="e.g. A3K9P2" maxlength="6" style="text-transform:uppercase; letter-spacing: 0.15em; font-weight: 600;" />
+          <button id="joinRoomBtn" class="btn primary full">Join Room</button>
           <p class="error" id="joinError"></p>
         </div>
 
         <div class="panel full">
-          <h3>🏆 লিডারবোর্ড</h3>
-          <div id="leaderboard" class="leaderboard">লোড হচ্ছে...</div>
+          <h3>Leaderboard</h3>
+          <div id="leaderboard" class="leaderboard">Loading...</div>
         </div>
       </div>
     </div>
 
-    <!-- ROOM VIEW (Waiting) -->
+    <!-- ROOM (Waiting) -->
     <div id="view-room" class="view hidden">
       <header class="topbar">
-        <h2>রুম: <span id="roomCodeDisplay"></span></h2>
-        <button id="leaveRoomBtn" class="btn small danger">ছেড়ে দাও</button>
+        <div class="brand">
+          <span class="logo-sm">⛰</span>
+          <h2>Room</h2>
+        </div>
+        <button id="leaveRoomBtn" class="btn ghost danger">Leave</button>
       </header>
 
-      <div class="room-content">
-        <div class="players-list panel">
-          <h3>প্লেয়ার (<span id="playerCount">0</span>/<span id="maxPlayersDisplay">8</span>)</h3>
-          <ul id="playersUl"></ul>
+      <div class="room-layout">
+        <div class="panel room-code-panel">
+          <p class="label">Room Code</p>
+          <div class="code-box">
+            <span id="roomCodeDisplay" class="room-code">------</span>
+            <button id="copyCodeBtn" class="btn small" title="Copy code">Copy</button>
+          </div>
+          <p class="hint">Share this code with friends so they can join</p>
         </div>
 
-        <div class="room-controls panel">
-          <h3>সেটিংস</h3>
-          <div id="hostControls" class="hidden">
-            <label>কাস্টম টেক্সট:</label>
-            <textarea id="roomCustomText" rows="3" placeholder="টেক্সট পরিবর্তন করতে পারো..."></textarea>
-            <button id="updateTextBtn" class="btn">টেক্সট আপডেট</button>
-            <hr />
-            <label>ভাষা (ডিফল্ট টেক্সটের জন্য):</label>
-            <select id="raceLang">
-              <option value="bn">বাংলা</option>
-              <option value="en">English</option>
-            </select>
-            <button id="startRaceBtn" class="btn primary large">রেস শুরু করো</button>
+        <div class="room-content">
+          <div class="panel">
+            <h3>Players <span class="muted">(<span id="playerCount">0</span>/<span id="maxPlayersDisplay">8</span>)</span></h3>
+            <ul id="playersUl" class="players-list"></ul>
           </div>
-          <div id="guestWait">
-            <p>হোস্ট রেস শুরু করার জন্য অপেক্ষা করছো...</p>
+
+          <div class="panel">
+            <h3>Settings</h3>
+            <div id="hostControls" class="hidden">
+              <label class="field-label">Custom text (optional)</label>
+              <textarea id="roomCustomText" rows="3" placeholder="Change the race text..."></textarea>
+              <button id="updateTextBtn" class="btn full">Update Text</button>
+              <div class="row" style="margin-top: 14px;">
+                <label>Language</label>
+                <select id="raceLang">
+                  <option value="en">English</option>
+                  <option value="bn">বাংলা</option>
+                </select>
+              </div>
+              <button id="startRaceBtn" class="btn primary full large">Start Race</button>
+            </div>
+            <div id="guestWait">
+              <p class="waiting-msg">Waiting for host to start the race...</p>
+            </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- RACE VIEW -->
+    <!-- RACE -->
     <div id="view-race" class="view hidden">
-      <div class="race-header">
-        <div class="stats-bar">
-          <span>WPM: <strong id="liveWpm">0</strong></span>
-          <span>Accuracy: <strong id="liveAcc">100%</strong></span>
-          <span>Time: <strong id="liveTime">0.0s</strong></span>
-        </div>
+      <div class="stats-bar">
+        <div class="stat"><span class="stat-label">WPM</span><strong id="liveWpm">0</strong></div>
+        <div class="stat"><span class="stat-label">Accuracy</span><strong id="liveAcc">100%</strong></div>
+        <div class="stat"><span class="stat-label">Time</span><strong id="liveTime">0.0s</strong></div>
       </div>
 
-      <!-- Mountain Track -->
       <div class="mountain-track" id="mountainTrack">
-        <div class="peak">🏁 চূড়া</div>
+        <div class="peak">🏁 Summit</div>
         <div class="climbers-container" id="climbersContainer"></div>
       </div>
 
       <div class="typing-area">
         <div class="quote-display" id="quoteDisplay"></div>
-        <textarea id="typeInput" class="type-input" placeholder="এখানে টাইপ করো..." rows="3" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+        <textarea id="typeInput" class="type-input" placeholder="Start typing here..." rows="3" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
       </div>
     </div>
 
-    <!-- RESULT VIEW -->
+    <!-- RESULT -->
     <div id="view-result" class="view hidden">
       <div class="result-card">
-        <h2>রেস শেষ! 🏁</h2>
+        <h2>Race Complete</h2>
         <div id="resultList"></div>
-        <button id="backToLobbyBtn" class="btn primary">লবিতে ফিরে যাও</button>
+        <button id="backToLobbyBtn" class="btn primary full">Back to Lobby</button>
       </div>
     </div>
   </div>
