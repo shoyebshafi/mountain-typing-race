@@ -75,7 +75,7 @@ $('#registerForm').addEventListener('submit', async (e) => {
       })
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Register failed');
+    if (!res.ok) throw new Error(data.error || 'Registration failed');
     onAuthSuccess(data);
   } catch (err) {
     $('#regError').textContent = err.message;
@@ -105,11 +105,13 @@ function connectSocket() {
   if (state.socket) state.socket.disconnect();
 
   state.socket = io({
-    auth: { token: state.token }
+    auth: { token: state.token },
+    transports: ['websocket', 'polling']
   });
 
   state.socket.on('connect', () => {
     console.log('Connected to server');
+    $('#createError').textContent = '';
   });
 
   state.socket.on('connect_error', (err) => {
@@ -118,15 +120,19 @@ function connectSocket() {
       localStorage.removeItem('mtr_token');
       localStorage.removeItem('mtr_user');
       showView('auth');
+    } else {
+      $('#createError').textContent = 'Connection failed. Please refresh.';
     }
   });
 
   state.socket.on('error_msg', ({ message }) => {
     alert(message);
     $('#joinError').textContent = message;
+    $('#createError').textContent = message;
   });
 
   state.socket.on('room_created', ({ code, room }) => {
+    console.log('Room created:', code, room);
     state.room = room;
     enterRoomView(room);
   });
@@ -143,7 +149,7 @@ function connectSocket() {
 
   state.socket.on('player_left', ({ room }) => {
     state.room = room;
-    if (views.room.classList.contains('hidden') === false) {
+    if (!views.room.classList.contains('hidden')) {
       renderPlayers(room);
     }
   });
@@ -159,7 +165,7 @@ function connectSocket() {
   });
 
   state.socket.on('progress_update', (data) => {
-    updateClimber(data.socketId, data.progress, data.username);
+    updateClimber(data.socketId, data.progress);
   });
 
   state.socket.on('race_finished', ({ results }) => {
@@ -180,7 +186,7 @@ async function loadLeaderboard() {
     const data = await res.json();
     const el = $('#leaderboard');
     if (!data.length) {
-      el.innerHTML = '<p style="color:var(--muted)">এখনো কোনো স্কোর নেই</p>';
+      el.innerHTML = '<p style="color:var(--muted);font-size:0.875rem">No scores yet. Be the first!</p>';
       return;
     }
     el.innerHTML = data.map((row, i) => `
@@ -191,11 +197,17 @@ async function loadLeaderboard() {
       </div>
     `).join('');
   } catch {
-    $('#leaderboard').textContent = 'লোড করতে সমস্যা হয়েছে';
+    $('#leaderboard').textContent = 'Failed to load leaderboard';
   }
 }
 
 $('#createRoomBtn').addEventListener('click', () => {
+  $('#createError').textContent = '';
+  if (!state.socket || !state.socket.connected) {
+    $('#createError').textContent = 'Not connected. Please refresh the page.';
+    connectSocket();
+    return;
+  }
   const customText = $('#customTextInput').value.trim();
   const maxPlayers = parseInt($('#maxPlayers').value);
   state.socket.emit('create_room', { customText, maxPlayers });
@@ -204,16 +216,21 @@ $('#createRoomBtn').addEventListener('click', () => {
 $('#joinRoomBtn').addEventListener('click', () => {
   const code = $('#joinCode').value.trim().toUpperCase();
   if (code.length < 4) {
-    $('#joinError').textContent = 'সঠিক রুম কোড দাও';
+    $('#joinError').textContent = 'Enter a valid room code';
     return;
   }
   $('#joinError').textContent = '';
+  if (!state.socket || !state.socket.connected) {
+    $('#joinError').textContent = 'Not connected. Please refresh.';
+    return;
+  }
   state.socket.emit('join_room', { code });
 });
 
 // ========== Room ==========
 function enterRoomView(room) {
-  $('#roomCodeDisplay').textContent = room.code;
+  const code = room.code || '------';
+  $('#roomCodeDisplay').textContent = code;
   $('#maxPlayersDisplay').textContent = room.maxPlayers;
   renderPlayers(room);
 
@@ -234,6 +251,17 @@ function renderPlayers(room) {
     </li>
   `).join('');
 }
+
+$('#copyCodeBtn')?.addEventListener('click', () => {
+  const code = $('#roomCodeDisplay').textContent;
+  if (code && code !== '------') {
+    navigator.clipboard.writeText(code).then(() => {
+      const btn = $('#copyCodeBtn');
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+    });
+  }
+});
 
 $('#updateTextBtn')?.addEventListener('click', () => {
   const text = $('#roomCustomText').value.trim();
@@ -305,10 +333,10 @@ function renderQuote() {
   });
 }
 
-function updateClimber(socketId, progress, username) {
+function updateClimber(socketId, progress) {
   const el = document.getElementById(`climber-${socketId}`);
   if (!el) return;
-  const maxBottom = 240;
+  const maxBottom = 200;
   el.style.bottom = Math.min(progress / 100 * maxBottom, maxBottom) + 'px';
 }
 
