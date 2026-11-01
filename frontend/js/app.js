@@ -27,7 +27,9 @@ function newRaceState(text = '') {
     lastSent: 0,
     lastLen: 0,
     maxLen: 0,
-    wrong: new Set()
+    wrong: new Set(),
+    spans: [],
+    renderedLen: 0
   };
 }
 
@@ -257,8 +259,8 @@ function connectSocket() {
     }
     if (isVisible('result')) updateResultButtons();
     if (isVisible('race') && state.mode === 'race') {
-      const leftPlayer = document.querySelector(`.climber-lane[data-user="${CSS.escape(leftUsername || '')}"]`);
-      if (leftPlayer) leftPlayer.classList.add('left');
+      const leftPlayer = document.querySelector(`.hiker[data-user="${CSS.escape(leftUsername || '')}"]`);
+      if (leftPlayer) leftPlayer.classList.add('gone');
     }
   });
 
@@ -321,6 +323,7 @@ function enterLobby() {
   resetRace();
   state.mode = 'idle';
   $('#currentUser').textContent = state.user.username;
+  $('#welcomeName').textContent = state.user.username;
   showView('lobby');
   loadLeaderboard();
 }
@@ -343,9 +346,10 @@ async function loadLeaderboard() {
       el.innerHTML = `<p style="color:var(--muted);font-size:0.875rem">No ${langName(state.lbLang)} scores yet. Be the first!</p>`;
       return;
     }
+    const medals = ['🥇', '🥈', '🥉'];
     el.innerHTML = data.map((row, i) => `
-      <div class="lb-row ${row.username === state.user?.username ? 'me' : ''}">
-        <span class="rank">#${i + 1}</span>
+      <div class="lb-row ${i < 3 ? 'top' + (i + 1) : ''} ${row.username === state.user?.username ? 'me' : ''}">
+        <span class="rank">${medals[i] || '#' + (i + 1)}</span>
         <span class="name">${escapeHtml(row.username)}</span>
         <span class="acc">${Math.round(row.accuracy)}%</span>
         <span class="wpm">${Math.round(row.wpm)} WPM</span>
@@ -364,8 +368,7 @@ $('#createRoomBtn').addEventListener('click', () => {
     return;
   }
   state.socket.emit('create_room', {
-    customText: $('#customTextInput').value.trim(),
-    maxPlayers: parseInt($('#maxPlayers').value)
+    customText: $('#customTextInput').value.trim()
   });
 });
 
@@ -524,9 +527,12 @@ function refreshHostControls(room) {
 
 function renderPlayers(room) {
   $('#playerCount').textContent = room.playerCount;
-  $('#playersUl').innerHTML = room.players.map((p) => `
+  $('#playersUl').innerHTML = room.players.map((p, i) => `
     <li>
-      <span>${escapeHtml(p.username)}</span>
+      <span class="pl">
+        <span class="avatar" style="background:${state.colors[i % state.colors.length]}">${escapeHtml(p.username.charAt(0).toUpperCase())}</span>
+        ${escapeHtml(p.username)}
+      </span>
       ${p.isHost ? '<span class="host-badge">Host</span>' : ''}
     </li>
   `).join('');
@@ -570,30 +576,35 @@ function setupRace(text, players) {
   players.forEach((p, idx) => {
     const id = p.socketId;
     const isMe = state.mode === 'practice' ? true : id === state.socket.id;
-    const lane = document.createElement('div');
-    lane.className = 'climber-lane';
-    lane.dataset.user = p.username;
-    lane.innerHTML = `
-      <div class="climber-rope"><div class="climber-rope-fill" id="rope-${id}"></div></div>
-      <div class="climber-figure ${isMe ? 'me' : ''}" id="climber-${id}" data-progress="0" style="background:${state.colors[idx % state.colors.length]}">🧗<span class="climber-rank hidden" id="rank-${id}"></span></div>
-      <div class="climber-label">
-        <span class="climber-name">${escapeHtml(p.username)}${isMe ? ' (you)' : ''}</span>
-        <span class="climber-wpm" id="wpm-${id}">0 WPM</span>
+    const hiker = document.createElement('div');
+    hiker.className = 'hiker' + (isMe ? ' me' : '');
+    hiker.id = `climber-${id}`;
+    hiker.dataset.user = p.username;
+    hiker.dataset.slot = String(idx);
+    hiker.dataset.progress = '0';
+    hiker.style.setProperty('--c', state.colors[idx % state.colors.length]);
+    hiker.innerHTML = `
+      <div class="hiker-tag">
+        <span class="hiker-name">${escapeHtml(p.username)}${isMe ? ' (you)' : ''}</span>
+        <span class="hiker-wpm" id="wpm-${id}">0 WPM</span>
       </div>
+      ${hikerSvg()}
+      <span class="hiker-rank hidden" id="rank-${id}"></span>
     `;
-    container.appendChild(lane);
+    container.appendChild(hiker);
+    placeHiker(hiker, 0);
   });
 
-  renderQuote();
+  buildQuote();
   const input = $('#typeInput');
   input.value = '';
   input.disabled = true;
-  input.placeholder = 'Get ready...';
+  setOverlay('Get ready...');
   $('#liveWpm').textContent = '0';
   $('#liveAcc').textContent = '100%';
   $('#liveTime').textContent = '0.0s';
+  $('#liveAlt').textContent = '0 m';
   $('#finishMsg').classList.add('hidden');
-  $('#quoteDisplay').scrollTop = 0;
   showView('race');
 }
 
@@ -638,8 +649,9 @@ function startTyping() {
   const input = $('#typeInput');
   input.disabled = false;
   input.value = '';
-  input.placeholder = 'Start typing here...';
+  setOverlay(null);
   input.focus();
+  if (document.activeElement !== input) setOverlay('Click here to start typing');
   r.timerInterval = setInterval(tickTime, 100);
 }
 
@@ -649,32 +661,136 @@ function tickTime() {
   $('#liveTime').textContent = ((Date.now() - r.startTime) / 1000).toFixed(1) + 's';
 }
 
-function renderQuote(typedArr = []) {
+// ----- Single-box typing: the quote itself is the typing surface -----
+function setOverlay(msg) {
+  const o = $('#quoteOverlay');
+  if (!msg) {
+    o.classList.add('hidden');
+    return;
+  }
+  o.textContent = msg;
+  o.classList.remove('hidden');
+}
+
+function buildQuote() {
+  const r = state.race;
   const box = $('#quoteDisplay');
-  const chars = state.race.textArr;
   const frag = document.createDocumentFragment();
-  let currentEl = null;
-  chars.forEach((ch, i) => {
-    const span = document.createElement('span');
-    span.textContent = ch;
-    if (i < typedArr.length) {
-      span.className = typedArr[i] === ch ? 'correct' : 'incorrect';
-    } else if (i === typedArr.length) {
-      span.className = 'current';
-      currentEl = span;
-    }
-    frag.appendChild(span);
+  r.spans = r.textArr.map((ch) => {
+    const s = document.createElement('span');
+    s.textContent = ch;
+    frag.appendChild(s);
+    return s;
   });
   box.innerHTML = '';
   box.appendChild(frag);
+  box.scrollTop = 0;
+  r.renderedLen = 0;
+  if (r.spans[0]) r.spans[0].className = 'current';
+}
 
-  // keep the current character in view without scrolling the whole page
-  if (currentEl) {
-    const top = currentEl.offsetTop;
-    if (top > box.scrollTop + box.clientHeight - 50 || top < box.scrollTop) {
-      box.scrollTop = Math.max(0, top - 40);
-    }
+// Only the characters that changed are touched, so long passages stay fast.
+function updateQuote(typedArr) {
+  const r = state.race;
+  const n = r.spans.length;
+  if (!n) return;
+  const newLen = typedArr.length;
+  const from = Math.max(0, Math.min(r.renderedLen, newLen) - 1);
+  const to = Math.min(n - 1, Math.max(r.renderedLen, newLen));
+  for (let i = from; i <= to; i++) {
+    const cls = i < newLen ? (typedArr[i] === r.textArr[i] ? 'correct' : 'incorrect') : i === newLen ? 'current' : '';
+    if (r.spans[i].className !== cls) r.spans[i].className = cls;
   }
+  r.renderedLen = newLen;
+
+  // keep the active line as the second visible line
+  const box = $('#quoteDisplay');
+  const cur = r.spans[Math.min(newLen, n - 1)];
+  const cs = getComputedStyle(box);
+  const lh = parseFloat(cs.lineHeight) || 40;
+  const pad = parseFloat(cs.paddingTop) || 0;
+  const wanted = Math.max(0, cur.offsetTop - pad - lh);
+  if (Math.abs(wanted - box.scrollTop) > lh * 0.5) box.scrollTop = wanted;
+}
+
+// ----- The mountain: a switchback trail from base camp to the summit -----
+const SUMMIT_METERS = 3000;
+// Waypoints in scene units (the scene is 1000 x 600)
+const TRAIL = [[200, 570], [700, 540], [300, 485], [690, 430], [340, 375], [650, 325], [390, 275], [610, 228], [450, 180], [535, 140], [500, 84]];
+const TRAIL_SEG = [];
+let trailTotal = 0;
+for (let i = 1; i < TRAIL.length; i++) {
+  const [x0, y0] = TRAIL[i - 1];
+  const [x1, y1] = TRAIL[i];
+  const len = Math.hypot(x1 - x0, y1 - y0);
+  TRAIL_SEG.push({ x0, y0, x1, y1, start: trailTotal, len });
+  trailTotal += len;
+}
+
+// progress 0..100  ->  a point on the trail
+function trailPoint(progress) {
+  const d = (Math.min(Math.max(progress, 0), 100) / 100) * trailTotal;
+  const seg = TRAIL_SEG.find((s) => d <= s.start + s.len) || TRAIL_SEG[TRAIL_SEG.length - 1];
+  const t = seg.len ? (d - seg.start) / seg.len : 0;
+  return { x: seg.x0 + (seg.x1 - seg.x0) * t, y: seg.y0 + (seg.y1 - seg.y0) * t, dx: seg.x1 - seg.x0 };
+}
+
+function buildScene() {
+  const d = TRAIL.map(([x, y], i) => (i ? 'L' : 'M') + x + ' ' + y).join(' ');
+  $('#trailPath').setAttribute('d', d);
+  $('#trailShadow').setAttribute('d', d);
+
+  let seed = 7;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+
+  let stars = '';
+  for (let i = 0; i < 70; i++) {
+    stars += `<circle cx="${Math.round(rnd() * 1000)}" cy="${Math.round(rnd() * 240)}" r="${(0.5 + rnd() * 1.2).toFixed(1)}" fill="#fff" opacity="${(0.35 + rnd() * 0.55).toFixed(2)}"${i % 4 === 0 ? ' class="twinkle"' : ''}/>`;
+  }
+  $('#stars').innerHTML = stars;
+
+  let trees = '';
+  for (let x = 14; x < 1000; x += 34) {
+    const y = 556 + rnd() * 34;
+    const h = 22 + rnd() * 14;
+    trees += `<g><rect x="${x - 1.5}" y="${y}" width="3" height="6" fill="#3b2a1a"/>` +
+      `<polygon points="${x},${y - h} ${x - 10},${y + 2} ${x + 10},${y + 2}" fill="#0b4a37"/>` +
+      `<polygon points="${x},${y - h - 8} ${x - 7},${y - h + 12} ${x + 7},${y - h + 12}" fill="#0f5c44"/></g>`;
+  }
+  $('#trees').innerHTML = trees;
+}
+buildScene();
+
+function hikerSvg() {
+  return `<svg class="hiker-fig" viewBox="-16 -50 32 54" aria-hidden="true">
+    <ellipse cx="0" cy="1" rx="10" ry="2.6" fill="rgba(0,0,0,.35)"/>
+    <g class="hiker-body">
+      <g class="leg leg-l"><rect x="-5.5" y="-17" width="4.5" height="17" rx="2.2" fill="#1e293b"/></g>
+      <g class="leg leg-r"><rect x="1" y="-17" width="4.5" height="17" rx="2.2" fill="#0f172a"/></g>
+      <rect class="pack" x="-13" y="-31" width="8" height="15" rx="3"/>
+      <rect class="jacket" x="-8" y="-31" width="16" height="16" rx="5"/>
+      <line class="arm arm-down" x1="6" y1="-28" x2="9" y2="-17"/>
+      <line class="arm arm-up" x1="-6" y1="-28" x2="-12" y2="-42"/>
+      <line class="arm arm-up" x1="6" y1="-28" x2="12" y2="-42"/>
+      <line class="pole" x1="9" y1="-19" x2="15" y2="1"/>
+      <circle cx="0" cy="-36" r="5.5" fill="#fcd5b0"/>
+      <path class="hat" d="M-6 -37 a6 6 0 0 1 12 0 z"/>
+    </g>
+  </svg>`;
+}
+
+function placeHiker(el, progress) {
+  const pt = trailPoint(progress);
+  const slot = Number(el.dataset.slot || 0);
+  // spread players side by side so nobody hides behind someone else
+  const x = pt.x + ((slot % 4) - 1.5) * 12;
+  const y = pt.y + (slot % 2) * 5;
+  el.style.left = x / 10 + '%';
+  el.style.top = y / 6 + '%';
+  // the higher up the mountain, the smaller the hiker looks
+  el.style.setProperty('--s', (1 - 0.38 * (progress / 100)).toFixed(3));
+  el.style.zIndex = String(Math.round(y));
+  el.classList.toggle('face-left', pt.dx < 0);
 }
 
 function updateClimber(id, progress, extra = {}) {
@@ -682,19 +798,17 @@ function updateClimber(id, progress, extra = {}) {
   if (!el) return;
 
   if (progress !== undefined) {
-    const lane = el.parentElement;
-    const max = Math.max(lane.clientHeight - 44, 0);
-    el.style.bottom = (Math.min(progress, 100) / 100) * max + 'px';
-    const rope = document.getElementById(`rope-${id}`);
-    if (rope) rope.style.height = Math.min(progress, 100) + '%';
-
     const prev = parseFloat(el.dataset.progress || '0');
+    placeHiker(el, progress);
     if (progress > prev) {
-      el.classList.add('moving');
+      el.classList.add('walking');
       clearTimeout(el._t);
-      el._t = setTimeout(() => el.classList.remove('moving'), 350);
+      el._t = setTimeout(() => el.classList.remove('walking'), 600);
     }
     el.dataset.progress = String(progress);
+    if (id === myLaneId()) {
+      $('#liveAlt').textContent = Math.round((progress / 100) * SUMMIT_METERS).toLocaleString() + ' m';
+    }
   }
 
   if (extra.wpm !== undefined && id !== myLaneId()) {
@@ -702,6 +816,7 @@ function updateClimber(id, progress, extra = {}) {
     if (w) w.textContent = extra.wpm + ' WPM';
   }
   if (extra.finished) {
+    el.classList.remove('walking');
     el.classList.add('summit');
     if (extra.rank) {
       const badge = document.getElementById(`rank-${id}`);
@@ -741,6 +856,14 @@ typeInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') e.preventDefault();
 });
 
+// If the player clicks away mid-race, tell them how to continue
+typeInput.addEventListener('focus', () => {
+  if (state.race.running && !state.race.finished) setOverlay(null);
+});
+typeInput.addEventListener('blur', () => {
+  if (state.race.running && !state.race.finished) setOverlay('Click here to keep typing');
+});
+
 typeInput.addEventListener('input', () => {
   const r = state.race;
   if (!r.running || r.finished) return;
@@ -773,7 +896,7 @@ typeInput.addEventListener('input', () => {
   const accuracy = r.maxLen > 0 ? Math.round(((r.maxLen - r.wrong.size) / r.maxLen) * 100) : 100;
   const progress = (prefix / r.textArr.length) * 100;
 
-  renderQuote(typedArr);
+  updateQuote(typedArr);
   $('#liveWpm').textContent = wpm;
   $('#liveAcc').textContent = accuracy + '%';
   $('#liveTime').textContent = elapsed.toFixed(1) + 's';
@@ -786,6 +909,7 @@ typeInput.addEventListener('input', () => {
     r.finished = true;
     clearInterval(r.timerInterval);
     typeInput.disabled = true;
+    setOverlay(null);
     sfx.finish();
     if (state.mode === 'race') {
       $('#finishMsg').classList.remove('hidden');
