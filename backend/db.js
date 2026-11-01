@@ -5,10 +5,8 @@ const bcrypt = require('bcrypt');
 const dbPath = path.join(__dirname, 'game.db');
 const db = new Database(dbPath);
 
-// Enable foreign keys
 db.pragma('foreign_keys = ON');
 
-// Create tables
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,30 +31,54 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_scores_wpm ON scores(wpm DESC);
 `);
 
-// Prepared statements
+// ---- Migrations (safe to run on an existing game.db) ----
+const scoreCols = db.prepare('PRAGMA table_info(scores)').all().map((c) => c.name);
+if (!scoreCols.includes('language')) {
+  db.exec("ALTER TABLE scores ADD COLUMN language TEXT NOT NULL DEFAULT 'en'");
+}
+if (!scoreCols.includes('mode')) {
+  // mode: 'race' | 'practice' | 'custom'
+  db.exec("ALTER TABLE scores ADD COLUMN mode TEXT NOT NULL DEFAULT 'race'");
+}
+db.exec('CREATE INDEX IF NOT EXISTS idx_scores_lang ON scores(language, wpm DESC)');
+
+// ---- Prepared statements ----
 const stmts = {
   createUser: db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)'),
   findUser: db.prepare('SELECT * FROM users WHERE username = ? COLLATE NOCASE'),
   findUserById: db.prepare('SELECT id, username, created_at FROM users WHERE id = ?'),
   insertScore: db.prepare(`
-    INSERT INTO scores (user_id, wpm, accuracy, time_seconds, rank, room_code)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO scores (user_id, wpm, accuracy, time_seconds, rank, room_code, language, mode)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `),
+  // Best score per user, per language. Custom-text games never count.
   topScores: db.prepare(`
-    SELECT u.username, s.wpm, s.accuracy, s.time_seconds, s.played_at
+    SELECT u.username, MAX(s.wpm) AS wpm, s.accuracy, s.time_seconds, s.played_at
     FROM scores s
     JOIN users u ON u.id = s.user_id
-    ORDER BY s.wpm DESC
+    WHERE s.language = ? AND s.mode != 'custom'
+    GROUP BY s.user_id
+    ORDER BY wpm DESC
     LIMIT ?
   `),
-  userBest: db.prepare(`
-    SELECT MAX(wpm) as best_wpm, AVG(wpm) as avg_wpm, COUNT(*) as races
+  userSummary: db.prepare(`
+    SELECT
+      MAX(wpm) AS best_wpm,
+      AVG(wpm) AS avg_wpm,
+      AVG(accuracy) AS avg_accuracy,
+      COUNT(*) AS races,
+      SUM(CASE WHEN mode = 'race' AND rank = 1 THEN 1 ELSE 0 END) AS wins
     FROM scores WHERE user_id = ?
   `),
-  recentScores: db.prepare(`
-    SELECT wpm, accuracy, time_seconds, rank, played_at
+  userByLanguage: db.prepare(`
+    SELECT language, MAX(wpm) AS best_wpm, COUNT(*) AS races
     FROM scores WHERE user_id = ?
-    ORDER BY played_at DESC LIMIT 10
+    GROUP BY language
+  `),
+  recentScores: db.prepare(`
+    SELECT wpm, accuracy, time_seconds, rank, language, mode, played_at
+    FROM scores WHERE user_id = ?
+    ORDER BY played_at DESC, id DESC LIMIT 20
   `)
 };
 
@@ -67,7 +89,6 @@ async function registerUser(username, password) {
   if (!password || password.length < 4) {
     throw new Error('Password must be at least 4 characters');
   }
-  // Simple username validation
   if (!/^[a-zA-Z0-9_]+$/.test(username)) {
     throw new Error('Username can only contain letters, numbers and underscore');
   }
@@ -79,33 +100,35 @@ async function registerUser(username, password) {
 
   const hash = await bcrypt.hash(password, 10);
   const result = stmts.createUser.run(username, hash);
-  return { id: result.lastInsertRowid, username };
+  return { id: Number(result.lastInsertRowid), username };
 }
 
 async function loginUser(username, password) {
-  const user = stmts.findUser.get(username);
+  const user = stmts.findUser.get(username || '');
   if (!user) {
     throw new Error('Invalid username or password');
   }
-  const match = await bcrypt.compare(password, user.password_hash);
+  const match = await bcrypt.compare(password || '', user.password_hash);
   if (!match) {
     throw new Error('Invalid username or password');
   }
   return { id: user.id, username: user.username };
 }
 
-function saveScore(userId, wpm, accuracy, timeSeconds, rank, roomCode) {
-  stmts.insertScore.run(userId, wpm, accuracy, timeSeconds, rank, roomCode || null);
+function saveScore(userId, wpm, accuracy, timeSeconds, rank, roomCode, language = 'en', mode = 'race') {
+  stmts.insertScore.run(userId, wpm, accuracy, timeSeconds, rank, roomCode || null, language, mode);
 }
 
-function getLeaderboard(limit = 20) {
-  return stmts.topScores.all(limit);
+function getLeaderboard(language = 'en', limit = 20) {
+  return stmts.topScores.all(language === 'bn' ? 'bn' : 'en', limit);
 }
 
 function getUserStats(userId) {
-  const best = stmts.userBest.get(userId);
-  const recent = stmts.recentScores.all(userId);
-  return { best, recent };
+  return {
+    best: stmts.userSummary.get(userId),
+    byLanguage: stmts.userByLanguage.all(userId),
+    recent: stmts.recentScores.all(userId)
+  };
 }
 
 module.exports = {
