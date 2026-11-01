@@ -3,11 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0a0e17" />
   <title>Summit Type — Multiplayer Typing Race</title>
   <link rel="stylesheet" href="css/style.css" />
   <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
+  <button id="soundBtn" class="sound-btn" title="Toggle sound" aria-label="Toggle sound">🔊</button>
+  <div id="toast" class="toast hidden" role="status"></div>
+
   <div id="app">
     <!-- AUTH -->
     <div id="view-auth" class="view">
@@ -45,6 +49,7 @@
           <h2>Summit Type</h2>
         </div>
         <div class="user-info">
+          <button id="profileBtn" class="btn small">👤 Profile</button>
           <span id="currentUser" class="username"></span>
           <button id="logoutBtn" class="btn ghost">Logout</button>
         </div>
@@ -53,11 +58,14 @@
       <div class="lobby-grid">
         <div class="panel">
           <h3>Create Room</h3>
-          <p class="hint">Optionally paste custom text for the race</p>
+          <p class="hint">Optionally paste custom text for the race (custom text does not count for the leaderboard)</p>
           <textarea id="customTextInput" placeholder="Paste custom text here (min 20 characters)..." rows="4"></textarea>
           <div class="row">
-            <label>Max players</label>
+            <label for="maxPlayers">Max players</label>
             <select id="maxPlayers">
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
               <option value="5">5</option>
               <option value="6">6</option>
               <option value="7">7</option>
@@ -72,14 +80,57 @@
           <h3>Join Room</h3>
           <p class="hint">Enter the 6-character room code</p>
           <input type="text" id="joinCode" placeholder="e.g. A3K9P2" maxlength="6" style="text-transform:uppercase; letter-spacing: 0.15em; font-weight: 600;" />
-          <button id="joinRoomBtn" class="btn primary full">Join Room</button>
+          <button id="joinRoomBtn" class="btn primary full" style="margin-top:12px">Join Room</button>
           <p class="error" id="joinError"></p>
         </div>
 
         <div class="panel full">
-          <h3>Leaderboard</h3>
+          <h3>Practice Mode <span class="muted">(solo)</span></h3>
+          <p class="hint">Train alone. Your score is saved to your profile and counts for the leaderboard.</p>
+          <div class="practice-row">
+            <select id="practiceLang" aria-label="Practice language">
+              <option value="en">English</option>
+              <option value="bn">বাংলা (Bangla)</option>
+            </select>
+            <button id="practiceStartBtn" class="btn primary">Start Practice</button>
+          </div>
+          <textarea id="practiceCustomText" placeholder="Or paste your own text here (min 20 characters, optional)..." rows="2" style="margin-top:12px"></textarea>
+          <p class="error" id="practiceError"></p>
+        </div>
+
+        <div class="panel full">
+          <div class="panel-head">
+            <h3>Leaderboard</h3>
+            <div class="lb-tabs">
+              <button class="lb-tab active" data-lang="en">English</button>
+              <button class="lb-tab" data-lang="bn">বাংলা</button>
+            </div>
+          </div>
           <div id="leaderboard" class="leaderboard">Loading...</div>
         </div>
+      </div>
+    </div>
+
+    <!-- PROFILE -->
+    <div id="view-profile" class="view hidden">
+      <header class="topbar">
+        <div class="brand">
+          <span class="logo-sm">👤</span>
+          <h2 id="profileName">Profile</h2>
+        </div>
+        <button id="backFromProfileBtn" class="btn ghost">← Back to Lobby</button>
+      </header>
+
+      <div id="profileStats" class="stat-cards"></div>
+
+      <div class="panel" style="margin-top:20px">
+        <h3>WPM over your last races</h3>
+        <div id="profileChart" class="chart-wrap"></div>
+      </div>
+
+      <div class="panel" style="margin-top:20px">
+        <h3>Recent games</h3>
+        <div id="profileRecent" class="table-wrap"></div>
       </div>
     </div>
 
@@ -112,14 +163,14 @@
           <div class="panel">
             <h3>Settings</h3>
             <div id="hostControls" class="hidden">
-              <label class="field-label">Custom text (optional)</label>
+              <label class="field-label" for="roomCustomText">Custom text (optional)</label>
               <textarea id="roomCustomText" rows="3" placeholder="Change the race text..."></textarea>
-              <button id="updateTextBtn" class="btn full">Update Text</button>
+              <button id="updateTextBtn" class="btn full" style="margin-top:10px">Update Text</button>
               <div class="row" style="margin-top: 14px;">
-                <label>Language</label>
+                <label for="raceLang">Language</label>
                 <select id="raceLang">
                   <option value="en">English</option>
-                  <option value="bn">বাংলা</option>
+                  <option value="bn">বাংলা (Bangla)</option>
                 </select>
               </div>
               <button id="startRaceBtn" class="btn primary full large">Start Race</button>
@@ -134,29 +185,50 @@
 
     <!-- RACE -->
     <div id="view-race" class="view hidden">
-      <div class="stats-bar">
-        <div class="stat"><span class="stat-label">WPM</span><strong id="liveWpm">0</strong></div>
-        <div class="stat"><span class="stat-label">Accuracy</span><strong id="liveAcc">100%</strong></div>
-        <div class="stat"><span class="stat-label">Time</span><strong id="liveTime">0.0s</strong></div>
+      <div class="race-top">
+        <div class="stats-bar">
+          <div class="stat"><span class="stat-label">WPM</span><strong id="liveWpm">0</strong></div>
+          <div class="stat"><span class="stat-label">Accuracy</span><strong id="liveAcc">100%</strong></div>
+          <div class="stat"><span class="stat-label">Time</span><strong id="liveTime">0.0s</strong></div>
+        </div>
+        <button id="quitRaceBtn" class="btn ghost danger small">Quit</button>
       </div>
 
       <div class="mountain-track" id="mountainTrack">
+        <svg class="mountain-bg" viewBox="0 0 800 300" preserveAspectRatio="none" aria-hidden="true">
+          <defs>
+            <linearGradient id="skyG" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#1b2a4a" />
+              <stop offset="1" stop-color="#0c1520" />
+            </linearGradient>
+          </defs>
+          <rect width="800" height="300" fill="url(#skyG)" />
+          <polygon points="0,300 0,170 90,110 170,175 270,70 370,170 470,95 580,175 680,90 800,170 800,300" fill="#142235" />
+          <polygon points="0,300 0,220 120,160 220,225 330,140 440,230 560,150 680,225 800,185 800,300" fill="#12301f" />
+          <polygon points="270,70 250,92 262,88 270,100 282,88 292,92" fill="#e2e8f0" opacity="0.85" />
+          <polygon points="680,90 662,110 672,106 680,117 690,106 700,110" fill="#e2e8f0" opacity="0.7" />
+        </svg>
         <div class="peak">🏁 Summit</div>
         <div class="climbers-container" id="climbersContainer"></div>
+        <div id="countdown" class="countdown hidden" aria-live="assertive">3</div>
       </div>
 
       <div class="typing-area">
         <div class="quote-display" id="quoteDisplay"></div>
-        <textarea id="typeInput" class="type-input" placeholder="Start typing here..." rows="3" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+        <textarea id="typeInput" class="type-input" placeholder="Get ready..." rows="3" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" disabled></textarea>
+        <p id="finishMsg" class="finish-msg hidden">🎉 You reached the summit! Waiting for the others...</p>
       </div>
     </div>
 
     <!-- RESULT -->
     <div id="view-result" class="view hidden">
       <div class="result-card">
-        <h2>Race Complete</h2>
+        <h2 id="resultTitle">Race Complete</h2>
         <div id="resultList"></div>
-        <button id="backToLobbyBtn" class="btn primary full">Back to Lobby</button>
+        <button id="rematchBtn" class="btn primary full hidden">🔁 Race Again (Rematch)</button>
+        <p id="waitHostMsg" class="waiting-msg hidden">Waiting for the host to start a rematch...</p>
+        <button id="practiceAgainBtn" class="btn primary full hidden">🔁 Practice Again</button>
+        <button id="backToLobbyBtn" class="btn full" style="margin-top:10px">Back to Lobby</button>
       </div>
     </div>
   </div>
