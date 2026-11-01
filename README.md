@@ -1,20 +1,21 @@
-# 🏔️ Mountain Typing Race (Summit Type)
+# 🏔️ Mountain Type
 
 A multiplayer typing race game. Log in with a username and password, create a private room, and race your friends up the mountain. Supports English and Bangla (বাংলা).
 
 ## Features
 
 - **Username + Password** login/register (no email or phone needed)
-- **Custom rooms** with a private 6-character room code (2–8 players)
+- **Custom rooms** with a private 6-character room code. Up to 8 players can join, and the host can start the race with any number of players (2, 3, 4...)
 - **3-2-1 countdown** before every race, so everyone starts together
-- **Real-time climbers** on an animated mountain, with a rank badge when you reach the summit
+- **A real mountain trail**: every correct character moves your hiker along a switchback path from base camp to the summit (live altitude meter, walking animation, rank badge and a victory pose at the top)
+- **Single-box typing**: you type directly on the text you read. Typed text is highlighted step by step, mistakes turn red, and long passages scroll automatically
 - **Rematch button**: the host can restart the room with a new text in one click
 - **Practice mode**: solo training in English or Bangla (or with your own text)
 - **Profile page**: best/average WPM, accuracy, wins, a WPM graph of your last 20 games and a recent games table
 - **Separate leaderboards** for English and Bangla (best score per player)
 - **Sound effects** (key clicks, countdown, finish) with a mute button
 - **Bangla-safe typing**: text is Unicode-normalized so vowel signs like `ো` / `ৌ` are compared fairly on every keyboard
-- **20 built-in texts** (10 English, 10 Bangla). Add more in `backend/texts.js`
+- **16 long built-in passages** (8 English, 8 Bangla, 400+ characters each). Add more in `backend/texts.js`
 - **Fair play**: WPM, accuracy and finishing are calculated on the server; pasting is blocked; you must finish the text without errors
 - **Races never hang**: every race has a time limit; players who do not finish appear as "Did not finish"
 
@@ -44,8 +45,8 @@ If `JWT_SECRET` is not set, a random one is generated on each start (users will 
 
 1. Register, then log in.
 2. **Create a room** (optionally paste your own text) and share the code, or **join** a friend's room.
-3. The host chooses a language and presses **Start Race**.
-4. After the 3-2-1 countdown, type the text. Fix mistakes to keep climbing.
+3. The host chooses a language and presses **Start Race** whenever they are ready.
+4. After the 3-2-1 countdown, click the text (it is focused for you) and start typing right on it. Fix mistakes to keep climbing.
 5. When the race ends, the host can press **Race Again** for a rematch.
 
 Custom-text games are saved to your profile but do not count for the leaderboard.
@@ -57,7 +58,7 @@ mountain-typing-race/
 ├── backend/
 │   ├── server.js      # Express + Socket.io (rooms, countdown, validation, practice)
 │   ├── db.js          # SQLite database + automatic migration
-│   ├── texts.js       # Built-in race texts + language detection
+│   ├── texts.js       # Long built-in race passages + language detection
 │   ├── package.json
 │   └── game.db        # (created automatically)
 ├── frontend/
