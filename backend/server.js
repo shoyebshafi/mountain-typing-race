@@ -24,6 +24,8 @@ if (!JWT_SECRET) {
 }
 const PORT = process.env.PORT || 3000;
 const COUNTDOWN_SECONDS = 3;
+const MAX_PLAYERS = 8;          // fixed: the host just starts when ready (even with 2 or 3 players)
+const MAX_TEXT_LENGTH = 1500;
 
 const app = express();
 const server = http.createServer(app);
@@ -174,12 +176,12 @@ io.on('connection', (socket) => {
   console.log(`User connected: ${socket.user.username} (${socket.id})`);
 
   // ---------- Rooms ----------
-  socket.on('create_room', ({ customText, maxPlayers = 8 } = {}) => {
+  socket.on('create_room', ({ customText } = {}) => {
     if (socket.roomCode) leaveRoom(socket);
 
     const code = generateRoomCode();
     const cleaned = norm(customText).trim();
-    const text = cleaned.length >= 20 ? cleaned.slice(0, 800) : null;
+    const text = cleaned.length >= 20 ? cleaned.slice(0, MAX_TEXT_LENGTH) : null;
 
     rooms[code] = {
       code,
@@ -191,7 +193,7 @@ io.on('connection', (socket) => {
       customText: !!text,
       lastText: null,
       textArr: null,
-      maxPlayers: Math.min(Math.max(parseInt(maxPlayers) || 8, 2), 8),
+      maxPlayers: MAX_PLAYERS,
       startedAt: null,
       timeLimit: 0,
       language: text ? detectLanguage(text) : 'en',
@@ -236,7 +238,7 @@ io.on('connection', (socket) => {
 
     const cleaned = norm(text).trim();
     if (cleaned.length >= 20) {
-      room.text = cleaned.slice(0, 800);
+      room.text = cleaned.slice(0, MAX_TEXT_LENGTH);
       room.customText = true;
       room.language = detectLanguage(room.text);
     } else {
@@ -257,7 +259,7 @@ io.on('connection', (socket) => {
       room.text = pickText(room.language, room.lastText);
     }
     room.textArr = toChars(room.text);
-    room.timeLimit = Math.min(600, Math.max(60, Math.ceil(room.textArr.length / 1.5)));
+    room.timeLimit = Math.min(900, Math.max(60, Math.ceil(room.textArr.length / 1.5)));
     room.results = [];
     resetPlayers(room);
     room.status = 'countdown';
@@ -336,7 +338,7 @@ io.on('connection', (socket) => {
     const cleaned = norm(customText).trim();
     let text, lang, mode;
     if (cleaned.length >= 20) {
-      text = cleaned.slice(0, 800);
+      text = cleaned.slice(0, MAX_TEXT_LENGTH);
       lang = detectLanguage(text);
       mode = 'custom';
     } else {
@@ -485,5 +487,5 @@ function publicRoom(room) {
 }
 
 server.listen(PORT, () => {
-  console.log(`🏔️ Mountain Typing Race server running on http://localhost:${PORT}`);
+  console.log(`🏔️ Mountain Type server running on http://localhost:${PORT}`);
 });
