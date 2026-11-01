@@ -3,41 +3,81 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#0a0e17" />
-  <title>Summit Type — Multiplayer Typing Race</title>
+  <meta name="theme-color" content="#070b16" />
+  <title>Mountain Type — Multiplayer Typing Race</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%E2%9B%B0%EF%B8%8F%3C/text%3E%3C/svg%3E" />
   <link rel="stylesheet" href="css/style.css" />
   <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
+  <!-- Shared logo symbol -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <linearGradient id="lg1" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#34d399" />
+        <stop offset="1" stop-color="#38bdf8" />
+      </linearGradient>
+      <symbol id="logo" viewBox="0 0 64 64">
+        <path d="M2 54 L24 14 L36 34 L44 22 L62 54 Z" fill="url(#lg1)" />
+        <path d="M24 14 L18.5 24 L22 22.5 L24 26 L27 22.5 L30 24 Z" fill="#fff" opacity=".95" />
+        <path d="M44 22 L40 28 L43 27 L44 29 L46 27 L47 28 Z" fill="#fff" opacity=".9" />
+      </symbol>
+    </defs>
+  </svg>
+
+  <!-- Decorative background ridges -->
+  <div class="bg-scene" aria-hidden="true">
+    <svg viewBox="0 0 1440 320" preserveAspectRatio="none">
+      <path d="M0 320 V210 L120 150 L230 205 L380 90 L520 200 L640 140 L780 215 L920 110 L1060 195 L1200 130 L1320 190 L1440 150 V320 Z" fill="#0d1a2e" opacity=".85" />
+      <path d="M0 320 V250 L160 200 L300 255 L470 170 L610 250 L760 195 L900 260 L1060 185 L1200 250 L1330 215 L1440 245 V320 Z" fill="#0a1424" />
+    </svg>
+  </div>
+
   <button id="soundBtn" class="sound-btn" title="Toggle sound" aria-label="Toggle sound">🔊</button>
   <div id="toast" class="toast hidden" role="status"></div>
 
   <div id="app">
     <!-- AUTH -->
     <div id="view-auth" class="view">
-      <div class="auth-card">
-        <div class="logo">⛰</div>
-        <h1>Summit Type</h1>
-        <p class="subtitle">Multiplayer Typing Race</p>
-
-        <div class="tabs">
-          <button class="tab active" data-tab="login">Login</button>
-          <button class="tab" data-tab="register">Register</button>
+      <div class="auth-wrap">
+        <div class="auth-hero">
+          <div class="hero-brand">
+            <svg class="logo-svg"><use href="#logo" /></svg>
+            <span>Mountain Type</span>
+          </div>
+          <h1>Climb the mountain,<br /><span class="grad">one word at a time.</span></h1>
+          <p class="hero-sub">Race your friends in real time. Every correct key sends your hiker higher up the trail, and only the fastest plants the flag on the summit first.</p>
+          <ul class="chips">
+            <li>🏔️ Live climbing races</li>
+            <li>👥 Up to 8 players</li>
+            <li>🇧🇩 English &amp; বাংলা</li>
+            <li>🏆 Leaderboards</li>
+          </ul>
         </div>
 
-        <form id="loginForm" class="auth-form">
-          <input type="text" id="loginUser" placeholder="Username" required minlength="3" maxlength="20" autocomplete="username" />
-          <input type="password" id="loginPass" placeholder="Password" required minlength="4" autocomplete="current-password" />
-          <button type="submit" class="btn primary">Login</button>
-          <p class="error" id="loginError"></p>
-        </form>
+        <div class="auth-card">
+          <h2 class="auth-title">Start your climb</h2>
+          <p class="auth-sub">No email or phone number needed.</p>
 
-        <form id="registerForm" class="auth-form hidden">
-          <input type="text" id="regUser" placeholder="Username (3–20 characters)" required minlength="3" maxlength="20" autocomplete="username" />
-          <input type="password" id="regPass" placeholder="Password (min 4 characters)" required minlength="4" autocomplete="new-password" />
-          <button type="submit" class="btn primary">Create Account</button>
-          <p class="error" id="regError"></p>
-        </form>
+          <div class="tabs">
+            <button class="tab active" data-tab="login">Login</button>
+            <button class="tab" data-tab="register">Register</button>
+          </div>
+
+          <form id="loginForm" class="auth-form">
+            <input type="text" id="loginUser" placeholder="Username" required minlength="3" maxlength="20" autocomplete="username" />
+            <input type="password" id="loginPass" placeholder="Password" required minlength="4" autocomplete="current-password" />
+            <button type="submit" class="btn primary large-btn">Login</button>
+            <p class="error" id="loginError"></p>
+          </form>
+
+          <form id="registerForm" class="auth-form hidden">
+            <input type="text" id="regUser" placeholder="Username (3–20 characters)" required minlength="3" maxlength="20" autocomplete="username" />
+            <input type="password" id="regPass" placeholder="Password (min 4 characters)" required minlength="4" autocomplete="new-password" />
+            <button type="submit" class="btn primary large-btn">Create Account</button>
+            <p class="error" id="regError"></p>
+          </form>
+        </div>
       </div>
     </div>
 
@@ -45,8 +85,8 @@
     <div id="view-lobby" class="view hidden">
       <header class="topbar">
         <div class="brand">
-          <span class="logo-sm">⛰</span>
-          <h2>Summit Type</h2>
+          <svg class="logo-svg sm"><use href="#logo" /></svg>
+          <h2>Mountain Type</h2>
         </div>
         <div class="user-info">
           <button id="profileBtn" class="btn small">👤 Profile</button>
@@ -55,38 +95,32 @@
         </div>
       </header>
 
+      <section class="lobby-hero">
+        <p class="eyebrow">Welcome back</p>
+        <h1 id="welcomeName">Climber</h1>
+        <p>Create a room, join your friends, or sharpen your speed in practice mode. Ready when you are.</p>
+      </section>
+
       <div class="lobby-grid">
         <div class="panel">
-          <h3>Create Room</h3>
-          <p class="hint">Optionally paste custom text for the race (custom text does not count for the leaderboard)</p>
-          <textarea id="customTextInput" placeholder="Paste custom text here (min 20 characters)..." rows="4"></textarea>
-          <div class="row">
-            <label for="maxPlayers">Max players</label>
-            <select id="maxPlayers">
-              <option value="2">2</option>
-              <option value="3">3</option>
-              <option value="4">4</option>
-              <option value="5">5</option>
-              <option value="6">6</option>
-              <option value="7">7</option>
-              <option value="8" selected>8</option>
-            </select>
-          </div>
-          <button id="createRoomBtn" class="btn primary full">Create Room</button>
+          <h3><span class="ico green">🏕️</span> Create Room</h3>
+          <p class="hint">Start a private room and share the code. Up to 8 players can join, and you can start the race whenever you like, even with just 2 or 3 players.</p>
+          <textarea id="customTextInput" placeholder="Optional: paste your own race text here (min 20 characters). Custom text does not count for the leaderboard." rows="4"></textarea>
+          <button id="createRoomBtn" class="btn primary full" style="margin-top:14px">Create Room</button>
           <p class="error" id="createError"></p>
         </div>
 
         <div class="panel">
-          <h3>Join Room</h3>
-          <p class="hint">Enter the 6-character room code</p>
-          <input type="text" id="joinCode" placeholder="e.g. A3K9P2" maxlength="6" style="text-transform:uppercase; letter-spacing: 0.15em; font-weight: 600;" />
-          <button id="joinRoomBtn" class="btn primary full" style="margin-top:12px">Join Room</button>
+          <h3><span class="ico blue">🔑</span> Join Room</h3>
+          <p class="hint">Got a code from a friend? Enter the 6-character room code to join their climb.</p>
+          <input type="text" id="joinCode" class="code-input" placeholder="A3K9P2" maxlength="6" />
+          <button id="joinRoomBtn" class="btn primary full" style="margin-top:14px">Join Room</button>
           <p class="error" id="joinError"></p>
         </div>
 
         <div class="panel full">
-          <h3>Practice Mode <span class="muted">(solo)</span></h3>
-          <p class="hint">Train alone. Your score is saved to your profile and counts for the leaderboard.</p>
+          <h3><span class="ico orange">⚡</span> Practice Mode <span class="muted">(solo)</span></h3>
+          <p class="hint">Train alone on a long passage. Your score is saved to your profile and counts for the leaderboard.</p>
           <div class="practice-row">
             <select id="practiceLang" aria-label="Practice language">
               <option value="en">English</option>
@@ -100,7 +134,7 @@
 
         <div class="panel full">
           <div class="panel-head">
-            <h3>Leaderboard</h3>
+            <h3><span class="ico gold">🏆</span> Leaderboard</h3>
             <div class="lb-tabs">
               <button class="lb-tab active" data-lang="en">English</button>
               <button class="lb-tab" data-lang="bn">বাংলা</button>
@@ -115,7 +149,7 @@
     <div id="view-profile" class="view hidden">
       <header class="topbar">
         <div class="brand">
-          <span class="logo-sm">👤</span>
+          <svg class="logo-svg sm"><use href="#logo" /></svg>
           <h2 id="profileName">Profile</h2>
         </div>
         <button id="backFromProfileBtn" class="btn ghost">← Back to Lobby</button>
@@ -124,7 +158,7 @@
       <div id="profileStats" class="stat-cards"></div>
 
       <div class="panel" style="margin-top:20px">
-        <h3>WPM over your last races</h3>
+        <h3>WPM over your last games</h3>
         <div id="profileChart" class="chart-wrap"></div>
       </div>
 
@@ -138,8 +172,8 @@
     <div id="view-room" class="view hidden">
       <header class="topbar">
         <div class="brand">
-          <span class="logo-sm">⛰</span>
-          <h2>Room</h2>
+          <svg class="logo-svg sm"><use href="#logo" /></svg>
+          <h2>Base Camp</h2>
         </div>
         <button id="leaveRoomBtn" class="btn ghost danger">Leave</button>
       </header>
@@ -161,10 +195,11 @@
           </div>
 
           <div class="panel">
-            <h3>Settings</h3>
+            <h3>Race Settings</h3>
             <div id="hostControls" class="hidden">
+              <p class="hint">You are the host. Start whenever you are ready, with any number of players.</p>
               <label class="field-label" for="roomCustomText">Custom text (optional)</label>
-              <textarea id="roomCustomText" rows="3" placeholder="Change the race text..."></textarea>
+              <textarea id="roomCustomText" rows="3" placeholder="Leave empty to use a random passage..."></textarea>
               <button id="updateTextBtn" class="btn full" style="margin-top:10px">Update Text</button>
               <div class="row" style="margin-top: 14px;">
                 <label for="raceLang">Language</label>
@@ -176,7 +211,7 @@
               <button id="startRaceBtn" class="btn primary full large">Start Race</button>
             </div>
             <div id="guestWait">
-              <p class="waiting-msg">Waiting for host to start the race...</p>
+              <p class="waiting-msg">⏳ Waiting for the host to start the race...</p>
             </div>
           </div>
         </div>
@@ -190,32 +225,86 @@
           <div class="stat"><span class="stat-label">WPM</span><strong id="liveWpm">0</strong></div>
           <div class="stat"><span class="stat-label">Accuracy</span><strong id="liveAcc">100%</strong></div>
           <div class="stat"><span class="stat-label">Time</span><strong id="liveTime">0.0s</strong></div>
+          <div class="stat"><span class="stat-label">Altitude</span><strong id="liveAlt">0 m</strong></div>
         </div>
         <button id="quitRaceBtn" class="btn ghost danger small">Quit</button>
       </div>
 
-      <div class="mountain-track" id="mountainTrack">
-        <svg class="mountain-bg" viewBox="0 0 800 300" preserveAspectRatio="none" aria-hidden="true">
+      <div class="scene" id="mountainTrack">
+        <svg class="scene-svg" viewBox="0 0 1000 600" preserveAspectRatio="none" aria-hidden="true">
           <defs>
-            <linearGradient id="skyG" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" stop-color="#1b2a4a" />
-              <stop offset="1" stop-color="#0c1520" />
+            <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#0b1130" />
+              <stop offset=".45" stop-color="#2a2a6b" />
+              <stop offset=".78" stop-color="#c2547a" />
+              <stop offset="1" stop-color="#ff9a5a" />
+            </linearGradient>
+            <radialGradient id="glow" cx=".5" cy=".5" r=".5">
+              <stop offset="0" stop-color="#ffe2b0" stop-opacity=".9" />
+              <stop offset=".4" stop-color="#ffa86a" stop-opacity=".45" />
+              <stop offset="1" stop-color="#ff9a5a" stop-opacity="0" />
+            </radialGradient>
+            <linearGradient id="rock" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#9aa3c4" />
+              <stop offset=".45" stop-color="#626b92" />
+              <stop offset="1" stop-color="#2e3a57" />
             </linearGradient>
           </defs>
-          <rect width="800" height="300" fill="url(#skyG)" />
-          <polygon points="0,300 0,170 90,110 170,175 270,70 370,170 470,95 580,175 680,90 800,170 800,300" fill="#142235" />
-          <polygon points="0,300 0,220 120,160 220,225 330,140 440,230 560,150 680,225 800,185 800,300" fill="#12301f" />
-          <polygon points="270,70 250,92 262,88 270,100 282,88 292,92" fill="#e2e8f0" opacity="0.85" />
-          <polygon points="680,90 662,110 672,106 680,117 690,106 700,110" fill="#e2e8f0" opacity="0.7" />
+
+          <rect width="1000" height="600" fill="url(#sky)" />
+          <g id="stars"></g>
+          <ellipse cx="500" cy="540" rx="520" ry="300" fill="url(#glow)" />
+
+          <g class="cloud c1" fill="#fff" opacity=".16">
+            <ellipse cx="170" cy="110" rx="70" ry="16" /><ellipse cx="215" cy="98" rx="46" ry="14" /><ellipse cx="125" cy="100" rx="40" ry="12" />
+          </g>
+          <g class="cloud c2" fill="#fff" opacity=".13">
+            <ellipse cx="780" cy="150" rx="80" ry="15" /><ellipse cx="830" cy="138" rx="50" ry="13" /><ellipse cx="730" cy="141" rx="42" ry="11" />
+          </g>
+
+          <polygon points="0,600 0,380 90,320 170,370 260,300 340,360 420,330 500,380 580,330 660,365 740,295 830,355 910,315 1000,370 1000,600" fill="#3b3f7a" opacity=".75" />
+          <polygon points="0,600 0,450 100,410 200,455 310,400 420,460 540,430 650,470 760,415 870,460 1000,420 1000,600" fill="#2a3160" />
+
+          <!-- main mountain -->
+          <polygon points="0,600 40,585 110,520 150,470 205,410 250,350 300,300 345,255 395,200 440,150 470,105 500,60 530,100 565,150 610,200 655,255 700,305 750,360 800,415 850,470 905,525 960,580 1000,600" fill="url(#rock)" />
+          <polygon points="500,60 530,100 565,150 610,200 655,255 700,305 750,360 800,415 850,470 905,525 960,580 1000,600 560,600 545,430 520,260" fill="#0a0e2a" opacity=".32" />
+          <polygon points="500,60 470,105 484,98 498,120 514,98 530,100" fill="#f8fafc" />
+          <polygon points="440,150 424,172 436,167 446,180 456,166 470,170 470,105" fill="#e2e8f0" opacity=".85" />
+
+          <!-- foothills + trees -->
+          <polygon points="0,600 0,545 120,522 260,556 400,578 600,578 740,556 880,522 1000,545 1000,600" fill="#0f2a26" />
+          <g id="trees"></g>
+
+          <!-- trail -->
+          <path id="trailShadow" fill="none" stroke="rgba(0,0,0,.28)" stroke-width="10" stroke-linejoin="round" stroke-linecap="round" />
+          <path id="trailPath" fill="none" stroke="rgba(255,236,200,.9)" stroke-width="4" stroke-dasharray="2 9" stroke-linejoin="round" stroke-linecap="round" />
+
+          <!-- base camp -->
+          <g>
+            <polygon points="150,578 172,550 194,578" fill="#f97316" />
+            <polygon points="172,550 183,578 194,578" fill="#c2410c" />
+            <polygon points="205,580 222,558 239,580" fill="#38bdf8" />
+            <polygon points="222,558 231,580 239,580" fill="#0284c7" />
+          </g>
+
+          <!-- summit flag -->
+          <g>
+            <line x1="500" y1="86" x2="500" y2="38" stroke="#e2e8f0" stroke-width="2.5" />
+            <polygon points="500,38 536,49 500,60" fill="#ef4444" />
+          </g>
         </svg>
-        <div class="peak">🏁 Summit</div>
-        <div class="climbers-container" id="climbersContainer"></div>
+
+        <div class="hikers" id="climbersContainer"></div>
         <div id="countdown" class="countdown hidden" aria-live="assertive">3</div>
+        <div class="summit-label">🏁 Summit · 3,000 m</div>
       </div>
 
       <div class="typing-area">
-        <div class="quote-display" id="quoteDisplay"></div>
-        <textarea id="typeInput" class="type-input" placeholder="Get ready..." rows="3" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" disabled></textarea>
+        <div class="quote-wrap" id="quoteWrap">
+          <div class="quote-display" id="quoteDisplay"></div>
+          <textarea id="typeInput" class="type-capture" aria-label="Type the text shown above" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" disabled></textarea>
+          <div class="quote-overlay" id="quoteOverlay">Get ready...</div>
+        </div>
         <p id="finishMsg" class="finish-msg hidden">🎉 You reached the summit! Waiting for the others...</p>
       </div>
     </div>
