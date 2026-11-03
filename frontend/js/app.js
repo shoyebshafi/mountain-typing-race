@@ -8,6 +8,8 @@ const state = {
   lbLang: 'en',
   sound: localStorage.getItem('mtr_sound') !== 'off',
   lastPractice: null,
+  standings: {},
+  raceOver: false,
   race: newRaceState(),
   colors: ['#38bdf8', '#f97316', '#a78bfa', '#f43f5e', '#eab308', '#14b8a6', '#ec4899', '#84cc16']
 };
@@ -29,7 +31,16 @@ function newRaceState(text = '') {
     maxLen: 0,
     wrong: new Set(),
     spans: [],
-    renderedLen: 0
+    renderedLen: 0,
+    timed: false,
+    duration: 0,
+    goalChars: 0,
+    samples: [],
+    sampleTimer: null,
+    correct: 0,
+    consistency: null,
+    liveWpm: 0,
+    liveAcc: 100
   };
 }
 
@@ -57,8 +68,22 @@ function isVisible(name) {
 
 // ========== Helpers ==========
 // NFC normalization so Bangla vowel signs typed in a different code point order still match.
+// Also removes invisible zero-width characters that some Bangla keyboards add.
 function normalize(s) {
-  return (s || '').normalize('NFC');
+  return (s || '').normalize('NFC').replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/\u00A0/g, ' ');
+}
+
+// Characters that different keyboards type differently count as the same:
+// Bangla digits and ASCII digits, the danda and the full stop, curly and straight quotes.
+const BN_DIGITS = '\u09E6\u09E7\u09E8\u09E9\u09EA\u09EB\u09EC\u09ED\u09EE\u09EF';
+const ALIASES = { '\u0964': '.', '\u2019': "'", '\u2018': "'", '\u201C': '"', '\u201D': '"', '\u2013': '-', '\u2014': '-' };
+function charKey(ch) {
+  const d = BN_DIGITS.indexOf(ch);
+  if (d >= 0) return String(d);
+  return ALIASES[ch] || ch;
+}
+function sameChar(a, b) {
+  return a === b || charKey(a) === charKey(b);
 }
 
 function escapeHtml(str) {
@@ -261,6 +286,9 @@ function connectSocket() {
     if (isVisible('race') && state.mode === 'race') {
       const leftPlayer = document.querySelector(`.hiker[data-user="${CSS.escape(leftUsername || '')}"]`);
       if (leftPlayer) leftPlayer.classList.add('gone');
+      const gone = Object.values(state.standings).find((x) => x.username === leftUsername);
+      if (gone) gone.left = true;
+      if (!$('#racePanel').classList.contains('hidden')) renderRacePanel();
     }
   });
 
@@ -273,6 +301,14 @@ function connectSocket() {
   socket.on('race_starting', ({ text, room }) => {
     state.room = room;
     state.mode = 'race';
+    state.raceOver = false;
+    state.standings = {};
+    room.players.forEach((p, idx) => {
+      state.standings[p.socketId] = {
+        idx, username: p.username, progress: 0, wpm: 0, accuracy: 100,
+        finished: false, rank: null, time: null, left: false, dnf: false
+      };
+    });
     setupRace(text, room.players);
   });
 
@@ -288,12 +324,41 @@ function connectSocket() {
     if (state.mode !== 'race') return;
     const mine = data.socketId === socket.id;
     updateClimber(data.socketId, mine ? undefined : data.progress, data);
+
+    const row = state.standings[data.socketId];
+    if (row) {
+      Object.assign(row, {
+        progress: data.progress, wpm: data.wpm, accuracy: data.accuracy,
+        finished: data.finished, rank: data.rank, time: data.time
+      });
+    }
+    // the result box opens for each player the moment they finish
+    if (mine && data.finished) showRacePanel();
+    else if (!$('#racePanel').classList.contains('hidden')) renderRacePanel();
   });
 
   socket.on('race_finished', ({ results, room }) => {
     state.room = room;
+    state.raceOver = true;
     finishRaceTimers();
-    showResults(results, 'race');
+    results.forEach((r) => {
+      const entry = Object.values(state.standings).find((x) => x.username === r.username);
+      if (!entry) return;
+      if (r.finished) {
+        Object.assign(entry, { finished: true, rank: r.rank, wpm: r.wpm, accuracy: r.accuracy, time: r.time, progress: 100 });
+      } else {
+        Object.assign(entry, { dnf: true, wpm: r.wpm, accuracy: r.accuracy, progress: r.progress || entry.progress });
+      }
+    });
+    // anyone still typing when the clock runs out is stopped here
+    const rs = state.race;
+    if (!rs.finished) {
+      rs.finished = true;
+      rs.running = false;
+      $('#typeInput').disabled = true;
+      setOverlay(null);
+    }
+    showRacePanel();
   });
 
   socket.on('rematch_ready', ({ room }) => {
@@ -304,16 +369,18 @@ function connectSocket() {
   });
 
   // ----- Practice -----
-  socket.on('practice_ready', ({ text }) => {
+  socket.on('practice_ready', ({ text, mode, duration }) => {
     state.mode = 'practice';
-    setupRace(text, [{ socketId: 'me', username: state.user.username }]);
+    setupRace(text, [{ socketId: 'me', username: state.user.username }], { timed: mode === 'timed', duration });
     localCountdown(startTyping);
   });
 
   socket.on('practice_result', (r) => {
+    const title = r.mode === 'timed' ? `${r.duration} Second Test Complete` : 'Practice Complete';
     showResults(
       [{ username: state.user.username, wpm: r.wpm, accuracy: r.accuracy, rank: 1, time: r.time, finished: true }],
-      'practice'
+      'practice',
+      title
     );
   });
 }
@@ -367,9 +434,18 @@ $('#createRoomBtn').addEventListener('click', () => {
     connectSocket();
     return;
   }
-  state.socket.emit('create_room', {
-    customText: $('#customTextInput').value.trim()
-  });
+  const useCustom = $('#customToggle').checked;
+  const customText = useCustom ? $('#customTextInput').value.trim() : '';
+  if (useCustom && customText.length < 20) {
+    $('#createError').textContent = 'Custom text needs at least 20 characters.';
+    return;
+  }
+  state.socket.emit('create_room', { customText });
+});
+
+$('#customToggle').addEventListener('change', (e) => {
+  $('#customTextInput').classList.toggle('hidden', !e.target.checked);
+  if (e.target.checked) $('#customTextInput').focus();
 });
 
 $('#joinRoomBtn').addEventListener('click', () => {
@@ -386,20 +462,44 @@ $('#joinRoomBtn').addEventListener('click', () => {
   state.socket.emit('join_room', { code });
 });
 
+// Practice: Random Text | Custom Text | 30 second Test | 60 second Test
+let practiceMode = 'random';
+
+function applyPracticeMode(mode) {
+  practiceMode = mode;
+  $$('.mode-btn').forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
+  const custom = mode === 'custom';
+  $('#practiceCustomText').classList.toggle('hidden', !custom);
+  $('#practiceOpts').classList.toggle('hidden', custom);
+  $('#practiceWordsWrap').classList.toggle('hidden', mode !== 'random');
+  $('#practiceError').textContent = '';
+}
+$$('.mode-btn').forEach((b) => b.addEventListener('click', () => applyPracticeMode(b.dataset.mode)));
+
 $('#practiceStartBtn').addEventListener('click', () => {
   $('#practiceError').textContent = '';
   if (!state.socket || !state.socket.connected) {
     $('#practiceError').textContent = 'Not connected. Please refresh the page.';
     return;
   }
-  const customText = $('#practiceCustomText').value.trim();
-  if (customText.length > 0 && customText.length < 20) {
-    $('#practiceError').textContent = 'Custom text needs at least 20 characters (or leave it empty).';
-    return;
+  const language = $('#practiceLang').value;
+  const topic = $('#practiceTopic').value;
+  let payload;
+  if (practiceMode === 'custom') {
+    const customText = $('#practiceCustomText').value.trim();
+    if (customText.length < 20) {
+      $('#practiceError').textContent = 'Custom text needs at least 20 characters.';
+      return;
+    }
+    payload = { mode: 'custom', customText };
+  } else if (practiceMode === 'random') {
+    payload = { mode: 'random', language, topic, words: $('#practiceWords').value };
+  } else {
+    payload = { mode: 'timed', duration: practiceMode === 't60' ? 60 : 30, language, topic };
   }
-  state.lastPractice = { language: $('#practiceLang').value, customText };
+  state.lastPractice = payload;
   sfx.tick();
-  state.socket.emit('practice_start', state.lastPractice);
+  state.socket.emit('practice_start', payload);
 });
 
 // ========== Profile ==========
@@ -557,7 +657,11 @@ $('#updateTextBtn').addEventListener('click', () => {
 $('#startRaceBtn').addEventListener('click', () => {
   const text = $('#roomCustomText').value.trim();
   if (text.length >= 20) state.socket.emit('set_text', { text });
-  state.socket.emit('start_race', { language: $('#raceLang').value });
+  state.socket.emit('start_race', {
+    language: $('#raceLang').value,
+    topic: $('#raceTopic').value,
+    words: $('#raceWords').value
+  });
 });
 
 $('#leaveRoomBtn').addEventListener('click', () => {
@@ -567,9 +671,15 @@ $('#leaveRoomBtn').addEventListener('click', () => {
 });
 
 // ========== Race ==========
-function setupRace(text, players) {
+function setupRace(text, players, opts = {}) {
   resetRace();
   state.race = newRaceState(text);
+  state.race.timed = !!opts.timed;
+  state.race.duration = opts.duration || 0;
+  state.race.goalChars = state.race.duration * (500 / 60); // timed test: the summit is a 100 WPM pace
+  $('#timeLabel').textContent = state.race.timed ? 'Time left' : 'Time';
+  $('#typingArea').classList.remove('hidden');
+  $('#racePanel').classList.add('hidden');
 
   const container = $('#climbersContainer');
   container.innerHTML = '';
@@ -602,7 +712,7 @@ function setupRace(text, players) {
   setOverlay('Get ready...');
   $('#liveWpm').textContent = '0';
   $('#liveAcc').textContent = '100%';
-  $('#liveTime').textContent = '0.0s';
+  $('#liveTime').textContent = state.race.timed ? state.race.duration.toFixed(1) + 's' : '0.0s';
   $('#liveAlt').textContent = '0 m';
   $('#finishMsg').classList.add('hidden');
   showView('race');
@@ -653,12 +763,20 @@ function startTyping() {
   input.focus();
   if (document.activeElement !== input) setOverlay('Click here to start typing');
   r.timerInterval = setInterval(tickTime, 100);
+  r.sampleTimer = setInterval(() => r.samples.push(r.correct), 1000);
 }
 
 function tickTime() {
   const r = state.race;
   if (!r.startTime || r.finished) return;
-  $('#liveTime').textContent = ((Date.now() - r.startTime) / 1000).toFixed(1) + 's';
+  const elapsed = (Date.now() - r.startTime) / 1000;
+  if (r.timed) {
+    const left = Math.max(0, r.duration - elapsed);
+    $('#liveTime').textContent = left.toFixed(1) + 's';
+    if (left <= 0) finishTyping();
+  } else {
+    $('#liveTime').textContent = elapsed.toFixed(1) + 's';
+  }
 }
 
 // ----- Single-box typing: the quote itself is the typing surface -----
@@ -698,7 +816,7 @@ function updateQuote(typedArr) {
   const from = Math.max(0, Math.min(r.renderedLen, newLen) - 1);
   const to = Math.min(n - 1, Math.max(r.renderedLen, newLen));
   for (let i = from; i <= to; i++) {
-    const cls = i < newLen ? (typedArr[i] === r.textArr[i] ? 'correct' : 'incorrect') : i === newLen ? 'current' : '';
+    const cls = i < newLen ? (sameChar(typedArr[i], r.textArr[i]) ? 'correct' : 'incorrect') : i === newLen ? 'current' : '';
     if (r.spans[i].className !== cls) r.spans[i].className = cls;
   }
   r.renderedLen = newLen;
@@ -864,7 +982,7 @@ typeInput.addEventListener('blur', () => {
   if (state.race.running && !state.race.finished) setOverlay('Click here to keep typing');
 });
 
-typeInput.addEventListener('input', () => {
+function handleTyping() {
   const r = state.race;
   if (!r.running || r.finished) return;
 
@@ -875,56 +993,94 @@ typeInput.addEventListener('input', () => {
   // A mistake counts once the cursor has moved past a wrong character
   // (so half-typed Bangla vowel signs at the cursor are never counted as errors).
   for (let i = 0; i < typedArr.length - 1; i++) {
-    if (typedArr[i] !== r.textArr[i]) r.wrong.add(i);
+    if (!sameChar(typedArr[i], r.textArr[i])) r.wrong.add(i);
   }
   r.maxLen = Math.max(r.maxLen, typedArr.length);
 
   if (typedArr.length > r.lastLen) {
     const idx = typedArr.length - 1;
-    (typedArr[idx] === r.textArr[idx] ? sfx.key : sfx.error)();
+    (sameChar(typedArr[idx], r.textArr[idx]) ? sfx.key : sfx.error)();
   }
   r.lastLen = typedArr.length;
 
   // Correct characters from the start; stops at the first mistake
-  let prefix = 0;
   const n = Math.min(typedArr.length, r.textArr.length);
-  while (prefix < n && typedArr[prefix] === r.textArr[prefix]) prefix++;
+  let prefix = 0;
+  while (prefix < n && sameChar(typedArr[prefix], r.textArr[prefix])) prefix++;
+
+  // Timed tests count every correct character, even after a mistake
+  let correct = prefix;
+  if (r.timed) {
+    correct = 0;
+    for (let i = 0; i < n; i++) if (sameChar(typedArr[i], r.textArr[i])) correct++;
+  }
+  r.correct = correct;
 
   const elapsed = (Date.now() - r.startTime) / 1000;
   const minutes = Math.max(elapsed / 60, 1 / 60);
-  const wpm = Math.min(400, Math.round(prefix / 5 / minutes));
+  const wpm = Math.min(400, Math.round(correct / 5 / minutes));
   const accuracy = r.maxLen > 0 ? Math.round(((r.maxLen - r.wrong.size) / r.maxLen) * 100) : 100;
-  const progress = (prefix / r.textArr.length) * 100;
+  const progress = r.timed ? Math.min(100, (correct / r.goalChars) * 100) : (prefix / r.textArr.length) * 100;
+  r.liveWpm = wpm;
+  r.liveAcc = accuracy;
 
   updateQuote(typedArr);
   $('#liveWpm').textContent = wpm;
   $('#liveAcc').textContent = accuracy + '%';
-  $('#liveTime').textContent = elapsed.toFixed(1) + 's';
+  if (!r.timed) $('#liveTime').textContent = elapsed.toFixed(1) + 's';
   updateClimber(myLaneId(), progress);
   const myWpm = document.getElementById(`wpm-${myLaneId()}`);
   if (myWpm) myWpm.textContent = wpm + ' WPM';
 
-  const finished = prefix === r.textArr.length && typedArr.length === r.textArr.length;
-  if (finished) {
-    r.finished = true;
-    clearInterval(r.timerInterval);
-    typeInput.disabled = true;
-    setOverlay(null);
-    sfx.finish();
-    if (state.mode === 'race') {
-      $('#finishMsg').classList.remove('hidden');
-      sendProgress(true);
-    } else if (state.mode === 'practice') {
-      updateClimber('me', 100, { finished: true, rank: 1 });
-      state.socket.emit('practice_finish', { typed: r.typed, maxLen: r.maxLen, mistakes: r.wrong.size });
-    }
-  } else {
-    sendProgress(false);
+  // the whole text has been typed correctly -> finished
+  if (!r.timed && prefix === r.textArr.length) finishTyping();
+  else sendProgress(false);
+}
+
+// 'input' fires on every change; 'compositionend' makes sure the last Bangla character
+// typed through an input method is never missed.
+typeInput.addEventListener('input', handleTyping);
+typeInput.addEventListener('compositionend', handleTyping);
+
+// How steady the typing pace was (100% = perfectly even)
+function calcConsistency(samples) {
+  const perSecond = [];
+  for (let i = 1; i < samples.length; i++) perSecond.push(samples[i] - samples[i - 1]);
+  const vals = perSecond.slice(1); // ignore the warm-up second
+  if (vals.length < 2) return null;
+  const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+  if (mean <= 0) return 0;
+  const variance = vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length;
+  return Math.max(0, Math.min(100, Math.round(100 - (Math.sqrt(variance) / mean) * 100)));
+}
+
+function finishTyping() {
+  const r = state.race;
+  if (r.finished) return;
+  r.finished = true;
+  clearInterval(r.timerInterval);
+  clearInterval(r.sampleTimer);
+  typeInput.disabled = true;
+  setOverlay(null);
+  sfx.finish();
+  r.consistency = calcConsistency(r.samples);
+  const elapsed = (Date.now() - r.startTime) / 1000;
+
+  if (state.mode === 'race') {
+    // Open our own result box right away; rank and exact time are confirmed by the server a moment later.
+    const me = state.standings[state.socket.id];
+    if (me) Object.assign(me, { finished: true, progress: 100, wpm: r.liveWpm, accuracy: r.liveAcc, time: elapsed.toFixed(1) });
+    sendProgress(true);
+    showRacePanel();
+  } else if (state.mode === 'practice') {
+    if (!r.timed) updateClimber('me', 100, { finished: true, rank: 1 });
+    state.socket.emit('practice_finish', { typed: r.typed, maxLen: r.maxLen, mistakes: r.wrong.size });
   }
-});
+}
 
 function finishRaceTimers() {
   clearInterval(state.race.timerInterval);
+  clearInterval(state.race.sampleTimer);
   clearTimeout(state.race.sendTimer);
   state.race.running = false;
 }
@@ -932,6 +1088,7 @@ function finishRaceTimers() {
 function resetRace() {
   const r = state.race;
   clearInterval(r.timerInterval);
+  clearInterval(r.sampleTimer);
   clearTimeout(r.cdTimer);
   clearTimeout(r.sendTimer);
   r.running = false;
@@ -944,8 +1101,85 @@ $('#quitRaceBtn').addEventListener('click', () => {
   enterLobby();
 });
 
+// ========== Room race result box ==========
+// Opens for each player as soon as they finish. They keep watching the mountain,
+// see the live standings, and can leave whenever they like.
+const ordinal = (n) => {
+  const suffix = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (suffix[(v - 20) % 10] || suffix[v] || suffix[0]);
+};
+
+function showRacePanel() {
+  const panel = $('#racePanel');
+  const firstTime = panel.classList.contains('hidden');
+  $('#typingArea').classList.add('hidden');
+  panel.classList.remove('hidden');
+  renderRacePanel();
+  if (firstTime) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function renderRacePanel() {
+  const mySid = state.socket && state.socket.id;
+  const medals = ['🥇', '🥈', '🥉'];
+  const rows = Object.entries(state.standings).map(([sid, s]) => ({ sid, ...s }));
+  const total = rows.length;
+  const me = state.standings[mySid];
+
+  if (me && me.finished) {
+    $('#rpEyebrow').textContent = 'You finished';
+    $('#rpTitle').textContent = me.rank
+      ? `${medals[me.rank - 1] || '🏁'} ${ordinal(me.rank)} place${total > 1 ? ' of ' + total : ''}`
+      : '🏁 Finished!';
+  } else {
+    $('#rpEyebrow').textContent = 'Race over';
+    $('#rpTitle').textContent = "⏱️ Time's up";
+  }
+  $('#rpWpm').textContent = me ? me.wpm : 0;
+  $('#rpAcc').textContent = (me ? me.accuracy : 0) + '%';
+  $('#rpCons').textContent = state.race.consistency == null ? '—' : state.race.consistency + '%';
+  $('#rpTime').textContent = me && me.time ? me.time + 's' : '—';
+
+  const badge = $('#rpState');
+  badge.textContent = state.raceOver ? 'Race complete' : 'Others are still racing...';
+  badge.classList.toggle('over', state.raceOver);
+
+  const order = (r) => (r.finished ? r.rank || 500 : r.left || r.dnf ? 3000 - r.progress : 1000 - r.progress);
+  rows.sort((a, b) => order(a) - order(b));
+
+  $('#rpStandings').innerHTML = rows.map((r) => {
+    const out = !r.finished && (r.left || r.dnf);
+    let status;
+    if (r.finished) status = `${r.time}s · ${r.accuracy}%`;
+    else if (r.left) status = 'Left the room';
+    else if (r.dnf) status = 'Did not finish';
+    else status = `Typing… ${Math.round(r.progress)}%`;
+    const pos = r.finished ? (r.rank ? medals[r.rank - 1] || '#' + r.rank : '…') : out ? '—' : '⌨️';
+    return `
+      <div class="st-row ${r.sid === mySid ? 'me' : ''} ${r.finished ? 'done' : ''} ${out ? 'out' : ''}">
+        <span class="st-pos">${pos}</span>
+        <span class="avatar sm" style="background:${state.colors[r.idx % state.colors.length]}">${escapeHtml(r.username.charAt(0).toUpperCase())}</span>
+        <span class="st-name">${escapeHtml(r.username)}${r.sid === mySid ? ' (you)' : ''}</span>
+        <span class="st-bar"><span style="width:${Math.round(r.progress)}%"></span></span>
+        <span class="st-wpm">${r.wpm} WPM</span>
+        <span class="st-status">${status}</span>
+      </div>`;
+  }).join('');
+
+  const host = amHost();
+  $('#rpRematchBtn').classList.toggle('hidden', !(state.raceOver && host));
+  $('#rpWait').classList.toggle('hidden', !(state.raceOver && !host));
+}
+
+$('#rpRematchBtn').addEventListener('click', () => state.socket.emit('rematch'));
+$('#rpLeaveBtn').addEventListener('click', () => {
+  if (state.socket) state.socket.emit('leave_room');
+  state.room = null;
+  enterLobby();
+});
+
 // ========== Results ==========
-function showResults(results, kind) {
+function showResults(results, kind, titleOverride) {
   state.resultKind = kind;
   resetRace();
   state.mode = 'idle';
@@ -953,7 +1187,7 @@ function showResults(results, kind) {
   const medals = ['🥇', '🥈', '🥉'];
   const mine = results.find((r) => r.username === state.user.username);
   $('#resultTitle').textContent =
-    kind === 'practice' ? 'Practice Complete' : results.some((r) => r.finished) ? 'Race Complete' : "Time's Up!";
+    titleOverride || (kind === 'practice' ? 'Practice Complete' : results.some((r) => r.finished) ? 'Race Complete' : "Time's Up!");
 
   $('#resultList').innerHTML = results.map((r) => {
     if (!r.finished) {
