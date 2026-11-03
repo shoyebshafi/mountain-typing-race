@@ -104,15 +104,19 @@
       <div class="lobby-grid">
         <div class="panel">
           <h3><span class="ico green">🏕️</span> Create Room</h3>
-          <p class="hint">Start a private room and share the code. Up to 8 players can join, and you can start the race whenever you like, even with just 2 or 3 players.</p>
-          <textarea id="customTextInput" placeholder="Optional: paste your own race text here (min 20 characters). Custom text does not count for the leaderboard." rows="4"></textarea>
+          <p class="hint">Max: 8 person</p>
+          <label class="switch-row" for="customToggle">
+            <span>Custom Text</span>
+            <span class="switch"><input type="checkbox" id="customToggle" /><span class="slider"></span></span>
+          </label>
+          <textarea id="customTextInput" class="hidden" placeholder="Paste your race text here (min 20 characters)..." rows="4"></textarea>
           <button id="createRoomBtn" class="btn primary full" style="margin-top:14px">Create Room</button>
           <p class="error" id="createError"></p>
         </div>
 
         <div class="panel">
           <h3><span class="ico blue">🔑</span> Join Room</h3>
-          <p class="hint">Got a code from a friend? Enter the 6-character room code to join their climb.</p>
+          <p class="hint">Enter the Room Code</p>
           <input type="text" id="joinCode" class="code-input" placeholder="A3K9P2" maxlength="6" />
           <button id="joinRoomBtn" class="btn primary full" style="margin-top:14px">Join Room</button>
           <p class="error" id="joinError"></p>
@@ -120,15 +124,37 @@
 
         <div class="panel full">
           <h3><span class="ico orange">⚡</span> Practice Mode <span class="muted">(solo)</span></h3>
-          <p class="hint">Train alone on a long passage. Your score is saved to your profile and counts for the leaderboard.</p>
-          <div class="practice-row">
-            <select id="practiceLang" aria-label="Practice language">
+          <div class="mode-grid" id="practiceModes">
+            <button type="button" class="mode-btn active" data-mode="random">🎲 Random Text</button>
+            <button type="button" class="mode-btn" data-mode="custom">✍️ Custom Text</button>
+            <button type="button" class="mode-btn" data-mode="t30">⏱️ 30 second Test</button>
+            <button type="button" class="mode-btn" data-mode="t60">⏱️ 60 second Test</button>
+          </div>
+          <div id="practiceOpts" class="practice-opts">
+            <select id="practiceLang" aria-label="Language">
               <option value="en">English</option>
               <option value="bn">বাংলা (Bangla)</option>
             </select>
-            <button id="practiceStartBtn" class="btn primary">Start Practice</button>
+            <select id="practiceTopic" aria-label="Topic">
+                <option value="mix">All topics (random)</option>
+                <option value="general">General</option>
+                <option value="biology">Biology · জীববিজ্ঞান</option>
+                <option value="chemistry">Chemistry · রসায়ন</option>
+                <option value="physics">Physics · পদার্থবিজ্ঞান</option>
+                <option value="history">Bengal History · বাংলা ইতিহাস</option>
+            </select>
+            <span id="practiceWordsWrap">
+              <select id="practiceWords" aria-label="Length">
+                <option value="random">Random (20 / 30 / 40 / 60 words)</option>
+                <option value="20">20 words</option>
+                <option value="30">30 words</option>
+                <option value="40">40 words</option>
+                <option value="60">60 words</option>
+              </select>
+            </span>
           </div>
-          <textarea id="practiceCustomText" placeholder="Or paste your own text here (min 20 characters, optional)..." rows="2" style="margin-top:12px"></textarea>
+          <textarea id="practiceCustomText" class="hidden" placeholder="Paste your own text here (min 20 characters)..." rows="3"></textarea>
+          <button id="practiceStartBtn" class="btn primary full" style="margin-top:14px">Start Practice</button>
           <p class="error" id="practiceError"></p>
         </div>
 
@@ -208,6 +234,27 @@
                   <option value="bn">বাংলা (Bangla)</option>
                 </select>
               </div>
+              <div class="row">
+                <label for="raceTopic">Topic</label>
+                <select id="raceTopic">
+                <option value="mix">All topics (random)</option>
+                <option value="general">General</option>
+                <option value="biology">Biology · জীববিজ্ঞান</option>
+                <option value="chemistry">Chemistry · রসায়ন</option>
+                <option value="physics">Physics · পদার্থবিজ্ঞান</option>
+                <option value="history">Bengal History · বাংলা ইতিহাস</option>
+                </select>
+              </div>
+              <div class="row">
+                <label for="raceWords">Length</label>
+                <select id="raceWords">
+                <option value="random">Random (20 / 30 / 40 / 60 words)</option>
+                <option value="20">20 words</option>
+                <option value="30">30 words</option>
+                <option value="40">40 words</option>
+                <option value="60">60 words</option>
+                </select>
+              </div>
               <button id="startRaceBtn" class="btn primary full large">Start Race</button>
             </div>
             <div id="guestWait">
@@ -224,7 +271,7 @@
         <div class="stats-bar">
           <div class="stat"><span class="stat-label">WPM</span><strong id="liveWpm">0</strong></div>
           <div class="stat"><span class="stat-label">Accuracy</span><strong id="liveAcc">100%</strong></div>
-          <div class="stat"><span class="stat-label">Time</span><strong id="liveTime">0.0s</strong></div>
+          <div class="stat"><span class="stat-label" id="timeLabel">Time</span><strong id="liveTime">0.0s</strong></div>
           <div class="stat"><span class="stat-label">Altitude</span><strong id="liveAlt">0 m</strong></div>
         </div>
         <button id="quitRaceBtn" class="btn ghost danger small">Quit</button>
@@ -299,7 +346,7 @@
         <div class="summit-label">🏁 Summit · 3,000 m</div>
       </div>
 
-      <div class="typing-area">
+      <div class="typing-area" id="typingArea">
         <div class="quote-wrap" id="quoteWrap">
           <div class="quote-display" id="quoteDisplay"></div>
           <textarea id="typeInput" class="type-capture" aria-label="Type the text shown above" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" disabled></textarea>
@@ -307,6 +354,33 @@
         </div>
         <p id="finishMsg" class="finish-msg hidden">🎉 You reached the summit! Waiting for the others...</p>
       </div>
+
+      <!-- Result box: opens for each player the moment they finish, while the others are still racing -->
+      <section id="racePanel" class="race-panel hidden">
+        <div class="rp-head">
+          <div>
+            <p class="eyebrow" id="rpEyebrow">You finished</p>
+            <h2 id="rpTitle">🏁 Finished!</h2>
+          </div>
+          <span class="rp-state" id="rpState">Others are still racing...</span>
+        </div>
+
+        <div class="rp-tiles">
+          <div class="tile big"><span class="k">WPM</span><strong id="rpWpm">0</strong><small>Final speed</small></div>
+          <div class="tile"><span class="k">Accuracy</span><strong id="rpAcc">0%</strong><small>Clean typing</small></div>
+          <div class="tile"><span class="k">Consistency</span><strong id="rpCons">—</strong><small>Steady pace</small></div>
+          <div class="tile"><span class="k">Time</span><strong id="rpTime">—</strong><small>To the summit</small></div>
+        </div>
+
+        <h4 class="rp-sub">Live standings</h4>
+        <div id="rpStandings" class="standings"></div>
+
+        <div class="rp-actions">
+          <button id="rpRematchBtn" class="btn primary hidden">🔁 Race Again</button>
+          <p id="rpWait" class="muted hidden">Waiting for the host to start a rematch...</p>
+          <button id="rpLeaveBtn" class="btn">Leave Room</button>
+        </div>
+      </section>
     </div>
 
     <!-- RESULT -->
