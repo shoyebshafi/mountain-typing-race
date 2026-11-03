@@ -1,5 +1,15 @@
-// Built-in race texts (long passages). Add more entries to either list any time.
-const TEXTS = {
+// Random text generator.
+//
+// Storage:
+//   PASSAGES (below)  -> long general passages; the "general" topic reads consecutive sentences from them
+//   topics.js         -> biology, chemistry, physics and Bengal history sentences
+//
+// Every race / test builds a fresh text of about 20, 30, 40 or 60 words (chosen at random)
+// from one topic, so players get a different text almost every time.
+// To grow the storage, add more sentences to topics.js or more passages below.
+const { TOPICS } = require('./topics');
+
+const PASSAGES = {
   bn: [
     "বাংলাদেশ নদীমাতৃক দেশ। এখানে অসংখ্য নদী-নালা, খাল-বিল আর হাওর জালের মতো ছড়িয়ে আছে। ষড়ঋতুর এই দেশে প্রতিটি ঋতু নিজের মতো করে সাজে। গ্রীষ্মে আম-কাঁঠালের মিষ্টি গন্ধে বাতাস ভরে ওঠে, বর্ষায় আকাশ ভেঙে নামে অঝোর ধারা। শরতে কাশফুলের সাদা ঢেউ দোলে নদীর পাড়ে, আর হেমন্তে সোনালি ধানের মাঠে কৃষকের মুখে হাসি ফোটে। শীতের সকালে খেজুরের রসের গন্ধ আর কুয়াশাঘেরা ভোর গ্রামের মানুষকে কাছে টেনে আনে। বসন্তে পলাশ আর শিমুলের লাল রঙে প্রকৃতি যেন নতুন করে জেগে ওঠে।",
     "বই মানুষের সবচেয়ে বিশ্বস্ত বন্ধু। একটি ভালো বই আমাদের নতুন কিছু শেখায়, ভাবতে শেখায় এবং স্বপ্ন দেখতে শেখায়। যে মানুষ নিয়মিত বই পড়ে, তার চিন্তা হয় স্বচ্ছ আর মন হয় উদার। ছোটবেলা থেকেই বই পড়ার অভ্যাস গড়ে তুললে জীবনের পথে চলা অনেক সহজ হয়ে যায়। মোবাইল আর ইন্টারনেটের এই যুগেও বইয়ের মূল্য একটুও কমেনি। বরং কোলাহলের মাঝে একটি বই আমাদের শান্ত হয়ে বসার সুযোগ করে দেয়। তাই প্রতিদিন অন্তত কিছুক্ষণ বই পড়ার অভ্যাস করা উচিত।",
@@ -22,14 +32,86 @@ const TEXTS = {
   ]
 };
 
-function pickText(lang, exclude) {
-  const list = TEXTS[lang] || TEXTS.en;
-  if (list.length === 1) return list[0];
-  let t;
-  do {
-    t = list[Math.floor(Math.random() * list.length)];
-  } while (t === exclude);
-  return t;
+const TOPIC_NAMES = ['general', 'biology', 'chemistry', 'physics', 'history'];
+const WORD_COUNTS = [20, 30, 40, 60];
+
+const rand = (n) => Math.floor(Math.random() * n);
+const countWords = (s) => s.trim().split(/\s+/).filter(Boolean).length;
+
+function shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = rand(i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// Split a passage into sentences (Bangla ends with the danda, English with . ! ?)
+function splitSentences(text, lang) {
+  const parts = lang === 'bn' ? text.match(/[^\u0964]+\u0964/g) : text.match(/[^.!?]+[.!?]+/g);
+  return (parts || [text]).map((s) => s.trim()).filter(Boolean);
+}
+
+const PASSAGE_SENTENCES = {
+  bn: PASSAGES.bn.map((p) => splitSentences(p, 'bn')),
+  en: PASSAGES.en.map((p) => splitSentences(p, 'en'))
+};
+
+// Build a fresh text.
+//   lang:      'bn' | 'en'
+//   topic:     'mix' (random topic) | 'general' | 'biology' | 'chemistry' | 'physics' | 'history'
+//   wordCount: a number (10-400), or anything else for a random 20 / 30 / 40 / 60
+function buildText(lang = 'en', topic = 'mix', wordCount) {
+  lang = lang === 'bn' ? 'bn' : 'en';
+  const n = parseInt(wordCount, 10);
+  const target = n >= 10 && n <= 400 ? n : WORD_COUNTS[rand(WORD_COUNTS.length)];
+  const chosen = TOPIC_NAMES.includes(topic) ? topic : TOPIC_NAMES[rand(TOPIC_NAMES.length)];
+
+  const parts = [];
+  let words = 0;
+  const enough = () => words >= target * 0.9;
+  const add = (s) => {
+    parts.push(s);
+    words += countWords(s);
+  };
+
+  // consecutive sentences from random passages (keeps the text readable)
+  const fillGeneral = () => {
+    let guard = 0;
+    while (!enough() && guard++ < 60) {
+      const sentences = PASSAGE_SENTENCES[lang][rand(PASSAGE_SENTENCES[lang].length)];
+      for (let i = rand(sentences.length); i < sentences.length && !enough(); i++) {
+        const w = countWords(sentences[i]);
+        if (words > 0 && words + w > target * 1.25) break;
+        add(sentences[i]);
+      }
+    }
+  };
+
+  // random standalone sentences from a topic pool (never repeats a sentence)
+  const fillFrom = (pool) => {
+    for (const s of pool) {
+      if (enough()) break;
+      const w = countWords(s);
+      if (words > 0 && words + w > target * 1.25) continue;
+      add(s);
+    }
+  };
+
+  if (chosen === 'general') {
+    fillGeneral();
+  } else {
+    fillFrom(shuffle(TOPICS[lang][chosen]));
+    if (!enough()) {
+      // long texts (timed tests) can use the other science/history topics too
+      const others = TOPIC_NAMES.filter((t) => t !== 'general' && t !== chosen).flatMap((t) => TOPICS[lang][t]);
+      fillFrom(shuffle(others));
+    }
+  }
+  if (!enough()) fillGeneral();
+
+  return parts.join(' ');
 }
 
 // 'bn' if the text contains any Bengali-script character, else 'en'
@@ -37,4 +119,4 @@ function detectLanguage(text) {
   return /[\u0980-\u09FF]/.test(text) ? 'bn' : 'en';
 }
 
-module.exports = { TEXTS, pickText, detectLanguage };
+module.exports = { PASSAGES, buildText, detectLanguage, TOPIC_NAMES };
