@@ -3,3 +3,4 @@ backend/game.db
 backend/.env
 *.log
 .DS_Store
+backend/.jwt_secret
