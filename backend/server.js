@@ -6,6 +6,7 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const path = require('path');
+const fs = require('fs');
 
 const {
   registerUser,
@@ -15,13 +16,28 @@ const {
   getUserStats,
   findUserById
 } = require('./db');
-const { pickText, detectLanguage } = require('./texts');
+const { buildText, detectLanguage } = require('./texts');
 
-let JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-  JWT_SECRET = crypto.randomBytes(32).toString('hex');
-  console.warn('[warn] JWT_SECRET is not set. Using a random secret; users will be logged out on every restart.');
+// The signing secret must survive restarts, otherwise every user would be logged out.
+// Priority: JWT_SECRET env var -> backend/.jwt_secret file (created once, never committed).
+function loadJwtSecret() {
+  if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
+  const file = path.join(__dirname, '.jwt_secret');
+  try {
+    const saved = fs.readFileSync(file, 'utf8').trim();
+    if (saved.length >= 32) return saved;
+  } catch { /* first run */ }
+  const created = crypto.randomBytes(48).toString('hex');
+  try {
+    fs.writeFileSync(file, created, { mode: 0o600 });
+  } catch (e) {
+    console.warn('[warn] Could not save .jwt_secret. Set the JWT_SECRET environment variable so logins survive restarts.');
+  }
+  return created;
 }
+const JWT_SECRET = loadJwtSecret();
+// "Always logged in": the token lasts ~10 years. Only the Logout button ends a session.
+const TOKEN_LIFETIME = '3650d';
 const PORT = process.env.PORT || 3000;
 const COUNTDOWN_SECONDS = 3;
 const MAX_PLAYERS = 8;          // fixed: the host just starts when ready (even with 2 or 3 players)
@@ -39,13 +55,27 @@ app.use(express.static(path.join(__dirname, '../frontend')));
 // ========== Text helpers ==========
 // Bangla vowel signs can be typed in different code point orders depending on the keyboard.
 // Normalizing both sides to NFC makes the comparison fair.
-const norm = (s) => String(s || '').normalize('NFC');
+// Also drops invisible zero-width characters that some Bangla keyboards insert.
+const norm = (s) => String(s || '').normalize('NFC').replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/\u00A0/g, ' ');
+// Race texts are always one line with single spaces (a line break can never be typed).
+const cleanText = (s) => norm(s).replace(/\s+/g, ' ').trim();
 const toChars = (s) => Array.from(norm(s));
+
+// Characters that different keyboards type differently count as the same:
+// Bangla digits and ASCII digits, the danda and the full stop, curly and straight quotes.
+const BN_DIGITS = '\u09E6\u09E7\u09E8\u09E9\u09EA\u09EB\u09EC\u09ED\u09EE\u09EF';
+const ALIASES = { '\u0964': '.', '\u2019': "'", '\u2018': "'", '\u201C': '"', '\u201D': '"', '\u2013': '-', '\u2014': '-' };
+function charKey(ch) {
+  const d = BN_DIGITS.indexOf(ch);
+  if (d >= 0) return String(d);
+  return ALIASES[ch] || ch;
+}
+const sameChar = (a, b) => a === b || charKey(a) === charKey(b);
 
 function correctPrefix(typedArr, textArr) {
   const n = Math.min(typedArr.length, textArr.length);
   let i = 0;
-  while (i < n && typedArr[i] === textArr[i]) i++;
+  while (i < n && sameChar(typedArr[i], textArr[i])) i++;
   return i;
 }
 
@@ -53,7 +83,7 @@ function correctPrefix(typedArr, textArr) {
 function calcStats(textArr, typed, maxLen, mistakes, startedAt, now) {
   const typedArr = toChars(typed);
   const prefix = correctPrefix(typedArr, textArr);
-  const finished = prefix === textArr.length && typedArr.length === textArr.length;
+  const finished = prefix === textArr.length;
   const minutes = Math.max((now - startedAt) / 60000, 1 / 60);
   const wpm = Math.min(400, Math.round(prefix / 5 / minutes));
   const mx = Math.max(Number(maxLen) || 0, typedArr.length);
@@ -66,6 +96,19 @@ function calcStats(textArr, typed, maxLen, mistakes, startedAt, now) {
     accuracy,
     progress: (prefix / textArr.length) * 100
   };
+}
+
+// Timed tests: every correct character in the right position counts, mistakes do not stop you.
+function calcTimedStats(textArr, typed, maxLen, mistakes, durationSec) {
+  const typedArr = toChars(typed);
+  const n = Math.min(typedArr.length, textArr.length);
+  let correct = 0;
+  for (let i = 0; i < n; i++) if (sameChar(typedArr[i], textArr[i])) correct++;
+  const wpm = Math.min(400, Math.round(correct / 5 / (durationSec / 60)));
+  const mx = Math.max(Number(maxLen) || 0, typedArr.length);
+  const m = Math.min(Math.max(Number(mistakes) || 0, 0), mx);
+  const accuracy = mx > 0 ? Math.round(((mx - m) / mx) * 100) : 100;
+  return { wpm, accuracy };
 }
 
 // ========== In-memory rooms ==========
@@ -126,7 +169,7 @@ app.post('/api/register', async (req, res) => {
   try {
     const { username, password } = req.body;
     const user = await registerUser(username, password);
-    const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: TOKEN_LIFETIME });
     res.json({ token, user: { id: user.id, username: user.username } });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -137,7 +180,7 @@ app.post('/api/login', async (req, res) => {
   try {
     const { username, password } = req.body;
     const user = await loginUser(username, password);
-    const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: TOKEN_LIFETIME });
     res.json({ token, user: { id: user.id, username: user.username } });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -180,7 +223,7 @@ io.on('connection', (socket) => {
     if (socket.roomCode) leaveRoom(socket);
 
     const code = generateRoomCode();
-    const cleaned = norm(customText).trim();
+    const cleaned = cleanText(customText);
     const text = cleaned.length >= 20 ? cleaned.slice(0, MAX_TEXT_LENGTH) : null;
 
     rooms[code] = {
@@ -236,7 +279,7 @@ io.on('connection', (socket) => {
     const room = rooms[socket.roomCode];
     if (!room || room.hostId !== socket.id || room.status !== 'waiting') return;
 
-    const cleaned = norm(text).trim();
+    const cleaned = cleanText(text);
     if (cleaned.length >= 20) {
       room.text = cleaned.slice(0, MAX_TEXT_LENGTH);
       room.customText = true;
@@ -248,7 +291,7 @@ io.on('connection', (socket) => {
     io.to(socket.roomCode).emit('room_updated', { room: publicRoom(room) });
   });
 
-  socket.on('start_race', ({ language = 'en' } = {}) => {
+  socket.on('start_race', ({ language = 'en', topic = 'mix', words } = {}) => {
     const room = rooms[socket.roomCode];
     if (!room || room.hostId !== socket.id || room.status !== 'waiting') return;
 
@@ -256,7 +299,7 @@ io.on('connection', (socket) => {
       room.language = detectLanguage(room.text);
     } else {
       room.language = language === 'bn' ? 'bn' : 'en';
-      room.text = pickText(room.language, room.lastText);
+      room.text = cleanText(buildText(room.language, topic, words));
     }
     room.textArr = toChars(room.text);
     room.timeLimit = Math.min(900, Math.max(60, Math.ceil(room.textArr.length / 1.5)));
@@ -312,7 +355,8 @@ io.on('connection', (socket) => {
       wpm: player.wpm,
       accuracy: player.accuracy,
       finished: player.finished,
-      rank: player.rank
+      rank: player.rank,
+      time: player.finished ? ((player.finishTime - room.startedAt) / 1000).toFixed(1) : null
     });
 
     if (Object.values(room.players).every((p) => p.finished)) endRace(room);
@@ -333,49 +377,72 @@ io.on('connection', (socket) => {
 
   socket.on('leave_room', () => leaveRoom(socket));
 
-  // ---------- Practice (solo) ----------
-  socket.on('practice_start', ({ language = 'en', customText } = {}) => {
-    const cleaned = norm(customText).trim();
-    let text, lang, mode;
-    if (cleaned.length >= 20) {
+  // ---------- Practice (solo): random text, custom text, 30s / 60s tests ----------
+  socket.on('practice_start', ({ mode = 'random', duration, language = 'en', topic = 'mix', words, customText } = {}) => {
+    const lang = language === 'bn' ? 'bn' : 'en';
+    let text, saveMode, secs = 0, textLang = lang;
+
+    if (mode === 'custom') {
+      const cleaned = cleanText(customText);
+      if (cleaned.length < 20) {
+        return socket.emit('error_msg', { message: 'Custom text needs at least 20 characters' });
+      }
       text = cleaned.slice(0, MAX_TEXT_LENGTH);
-      lang = detectLanguage(text);
-      mode = 'custom';
+      textLang = detectLanguage(text);
+      saveMode = 'custom';
+    } else if (mode === 'timed') {
+      secs = Number(duration) === 60 ? 60 : 30;
+      // plenty of text so nobody can run out before the clock does
+      text = cleanText(buildText(lang, topic, secs === 60 ? 260 : 140));
+      saveMode = 'timed';
     } else {
-      lang = language === 'bn' ? 'bn' : 'en';
-      text = pickText(lang, socket.practice && socket.practice.text);
-      mode = 'practice';
+      text = cleanText(buildText(lang, topic, words));
+      saveMode = 'practice';
     }
+
     socket.practice = {
       text,
       textArr: toChars(text),
-      language: lang,
-      mode,
+      language: textLang,
+      mode: saveMode,
+      duration: secs,
       startedAt: Date.now() + COUNTDOWN_SECONDS * 1000,
       done: false
     };
-    socket.emit('practice_ready', { text, language: lang });
+    socket.emit('practice_ready', { text, language: textLang, mode: saveMode, duration: secs });
   });
 
   socket.on('practice_finish', ({ typed, maxLen, mistakes } = {}) => {
     const p = socket.practice;
     if (!p || p.done || typeof typed !== 'string') return;
+    if (typed.length > p.textArr.length * 2 + 10) return;
     const now = Date.now();
-    const s = calcStats(p.textArr, typed, maxLen, mistakes, p.startedAt, now);
-    if (!s.finished) return;
+
+    let wpm, accuracy, timeSec;
+    if (p.mode === 'timed') {
+      if (now < p.startedAt + p.duration * 1000 - 2000) return; // the clock has not run out yet
+      ({ wpm, accuracy } = calcTimedStats(p.textArr, typed, maxLen, mistakes, p.duration));
+      timeSec = p.duration;
+    } else {
+      const s = calcStats(p.textArr, typed, maxLen, mistakes, p.startedAt, now);
+      if (!s.finished) return;
+      ({ wpm, accuracy } = s);
+      timeSec = Math.max((now - p.startedAt) / 1000, 1);
+    }
+
     p.done = true;
-    const timeSec = Math.max((now - p.startedAt) / 1000, 1);
     try {
-      saveScore(socket.user.id, s.wpm, s.accuracy, timeSec, null, null, p.language, p.mode);
+      saveScore(socket.user.id, wpm, accuracy, timeSec, null, null, p.language, p.mode);
     } catch (e) {
       console.error('Score save error:', e.message);
     }
     socket.emit('practice_result', {
-      wpm: s.wpm,
-      accuracy: s.accuracy,
+      wpm,
+      accuracy,
       time: timeSec.toFixed(1),
       language: p.language,
-      mode: p.mode
+      mode: p.mode,
+      duration: p.duration
     });
   });
 
