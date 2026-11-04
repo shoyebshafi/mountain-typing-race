@@ -145,7 +145,7 @@
             </select>
             <span id="practiceWordsWrap">
               <select id="practiceWords" aria-label="Length">
-                <option value="random">Random (20 / 30 / 40 / 60 words)</option>
+                <option value="random">Random length</option>
                 <option value="20">20 words</option>
                 <option value="30">30 words</option>
                 <option value="40">40 words</option>
@@ -180,6 +180,25 @@
         </div>
         <button id="backFromProfileBtn" class="btn ghost">← Back to Lobby</button>
       </header>
+
+      <section class="panel avatar-panel" id="avatarPanel">
+        <div class="av-head">
+          <h3><span class="ico green">🧗</span> Your Climber</h3>
+          <p class="hint">Choose how you look on the mountain. Everyone in your race sees your climber.</p>
+        </div>
+        <div class="av-layout">
+          <div class="av-stage" id="avStage">
+            <div class="av-wall"><span id="avPreview" class="av-preview"></span></div>
+            <label class="av-toggle"><input type="checkbox" id="avCheer" /> Summit pose</label>
+          </div>
+          <div class="av-controls" id="avControls"></div>
+        </div>
+        <div class="av-actions">
+          <span class="av-msg" id="avMsg"></span>
+          <button id="avResetBtn" class="btn">Reset</button>
+          <button id="avSaveBtn" class="btn primary">Save Climber</button>
+        </div>
+      </section>
 
       <div id="profileStats" class="stat-cards"></div>
 
@@ -248,7 +267,7 @@
               <div class="row">
                 <label for="raceWords">Length</label>
                 <select id="raceWords">
-                <option value="random">Random (20 / 30 / 40 / 60 words)</option>
+                <option value="random">Random length</option>
                 <option value="20">20 words</option>
                 <option value="30">30 words</option>
                 <option value="40">40 words</option>
@@ -278,69 +297,118 @@
       </div>
 
       <div class="scene" id="mountainTrack">
-        <svg class="scene-svg" viewBox="0 0 1000 600" preserveAspectRatio="none" aria-hidden="true">
+        <div class="scene-photo" id="scenePhoto"></div>
+        <svg class="scene-svg" viewBox="0 0 1000 620" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
           <defs>
             <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" stop-color="#0b1130" />
-              <stop offset=".45" stop-color="#2a2a6b" />
-              <stop offset=".78" stop-color="#c2547a" />
-              <stop offset="1" stop-color="#ff9a5a" />
+              <stop offset="0" stop-color="#4f86c6" />
+              <stop offset=".5" stop-color="#9cc4e6" />
+              <stop offset="1" stop-color="#f7dcbc" />
             </linearGradient>
-            <radialGradient id="glow" cx=".5" cy=".5" r=".5">
-              <stop offset="0" stop-color="#ffe2b0" stop-opacity=".9" />
-              <stop offset=".4" stop-color="#ffa86a" stop-opacity=".45" />
-              <stop offset="1" stop-color="#ff9a5a" stop-opacity="0" />
+            <radialGradient id="sunGlow" cx=".5" cy=".5" r=".5">
+              <stop offset="0" stop-color="#fff6d8" stop-opacity=".95" />
+              <stop offset=".35" stop-color="#ffd9a0" stop-opacity=".5" />
+              <stop offset="1" stop-color="#ffd9a0" stop-opacity="0" />
             </radialGradient>
-            <linearGradient id="rock" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" stop-color="#9aa3c4" />
-              <stop offset=".45" stop-color="#626b92" />
-              <stop offset="1" stop-color="#2e3a57" />
+            <!-- procedural rock: noise lit by a low sun gives the cliff its relief -->
+            <filter id="rock" filterUnits="userSpaceOnUse" x="0" y="0" width="1000" height="620">
+              <feTurbulence type="fractalNoise" baseFrequency="0.022 0.013" numOctaves="6" seed="14" result="noise" />
+              <feDiffuseLighting in="noise" surfaceScale="11" diffuseConstant="1.3" lighting-color="#cfc5b6" result="lit">
+                <feDistantLight azimuth="320" elevation="38" />
+              </feDiffuseLighting>
+              <feComposite in="lit" in2="SourceGraphic" operator="in" />
+            </filter>
+            <filter id="grain" filterUnits="userSpaceOnUse" x="0" y="0" width="1000" height="620">
+              <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="3" result="g" />
+              <feColorMatrix in="g" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 .5 -.12" />
+            </filter>
+            <filter id="blotch" filterUnits="userSpaceOnUse" x="0" y="0" width="1000" height="620">
+              <feTurbulence type="fractalNoise" baseFrequency="0.0045 0.0075" numOctaves="3" seed="21" result="b" />
+              <feColorMatrix in="b" type="matrix" values="0 0 0 0 .13  0 0 0 0 .1  0 0 0 0 .08  1.7 0 0 0 -.62" />
+            </filter>
+            <linearGradient id="wallShade" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color="#1a2230" stop-opacity=".55" />
+              <stop offset=".45" stop-color="#1a2230" stop-opacity=".05" />
+              <stop offset="1" stop-color="#ffc88a" stop-opacity=".3" />
             </linearGradient>
+            <linearGradient id="wallDepth" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#ffe3b8" stop-opacity=".28" />
+              <stop offset=".45" stop-color="#7a6e62" stop-opacity="0" />
+              <stop offset="1" stop-color="#10161e" stop-opacity=".7" />
+            </linearGradient>
+            <linearGradient id="fog" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#dfe8f1" stop-opacity="0" />
+              <stop offset="1" stop-color="#dfe8f1" stop-opacity=".38" />
+            </linearGradient>
+            <radialGradient id="vig" cx=".5" cy=".5" r=".75">
+              <stop offset=".55" stop-color="#000" stop-opacity="0" />
+              <stop offset="1" stop-color="#000" stop-opacity=".5" />
+            </radialGradient>
+            <clipPath id="wallClip">
+              <path d="M0 140 L40 126 L95 134 L150 114 L215 128 L285 108 L350 124 L420 104 L500 120 L570 106 L640 126 L710 110 L790 130 L860 112 L930 128 L1000 116 L1000 620 L0 620 Z" />
+            </clipPath>
           </defs>
 
-          <rect width="1000" height="600" fill="url(#sky)" />
-          <g id="stars"></g>
-          <ellipse cx="500" cy="540" rx="520" ry="300" fill="url(#glow)" />
+          <g class="bg-layer">
+            <rect width="1000" height="620" fill="url(#sky)" />
+            <circle cx="790" cy="150" r="190" fill="url(#sunGlow)" />
+            <path d="M0 150 L70 92 L130 124 L210 66 L300 128 L380 96 L470 134 L560 78 L650 126 L740 92 L830 132 L910 84 L1000 124 L1000 260 L0 260 Z" fill="#92aac8" opacity=".8" />
+            <path d="M0 170 L60 128 L140 156 L240 104 L330 150 L430 114 L520 152 L610 108 L700 150 L790 118 L880 154 L960 122 L1000 140 L1000 270 L0 270 Z" fill="#6f89aa" opacity=".9" />
 
-          <g class="cloud c1" fill="#fff" opacity=".16">
-            <ellipse cx="170" cy="110" rx="70" ry="16" /><ellipse cx="215" cy="98" rx="46" ry="14" /><ellipse cx="125" cy="100" rx="40" ry="12" />
+            <!-- the rock face -->
+            <g clip-path="url(#wallClip)">
+              <rect width="1000" height="620" fill="#8d857b" filter="url(#rock)" />
+              <rect width="1000" height="620" fill="#7a6a5a" opacity=".16" />
+              <rect width="1000" height="620" filter="url(#blotch)" opacity=".75" />
+              <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M96 620 L110 566 L98 520 L121 470 L112 418 L138 360 L128 300 L152 236 L146 170" stroke="#17120e" stroke-width="2" opacity=".5" />
+                <path d="M104 566 L84 540 M121 470 L146 452 M128 300 L104 280" stroke="#17120e" stroke-width="1.2" opacity=".4" />
+                <path d="M236 620 L226 574 L250 528 L240 478 L266 430 L254 372 L280 322 L270 258 L292 196" stroke="#17120e" stroke-width="2.2" opacity=".5" />
+                <path d="M250 528 L276 516 M254 372 L228 352 M270 258 L246 244" stroke="#17120e" stroke-width="1.2" opacity=".4" />
+                <path d="M384 620 L398 560 L380 508 L404 452 L392 396 L420 338 L408 280 L430 214 L424 150" stroke="#17120e" stroke-width="1.9" opacity=".48" />
+                <path d="M404 452 L430 440 M392 396 L368 380 M408 280 L384 262" stroke="#17120e" stroke-width="1.1" opacity=".38" />
+                <path d="M520 620 L508 566 L532 512 L520 456 L546 400 L534 344 L560 286 L548 224 L568 160" stroke="#17120e" stroke-width="2.1" opacity=".5" />
+                <path d="M532 512 L558 500 M546 400 L520 384 M560 286 L586 270" stroke="#17120e" stroke-width="1.2" opacity=".4" />
+                <path d="M664 620 L676 560 L656 506 L682 452 L668 394 L696 336 L684 276 L706 214 L700 152" stroke="#17120e" stroke-width="1.9" opacity=".46" />
+                <path d="M682 452 L708 438 M668 394 L644 378 M696 336 L722 322" stroke="#17120e" stroke-width="1.1" opacity=".38" />
+                <path d="M808 620 L796 568 L820 514 L808 460 L834 402 L822 346 L848 290 L836 230 L856 168" stroke="#17120e" stroke-width="2" opacity=".48" />
+                <path d="M820 514 L846 502 M834 402 L808 386 M848 290 L874 276" stroke="#17120e" stroke-width="1.2" opacity=".38" />
+                <path d="M936 620 L948 556 L930 498 L954 440 L942 380 L966 320" stroke="#17120e" stroke-width="1.8" opacity=".44" />
+                <path d="M0 292 L90 280 L170 298 L260 284 L340 300" stroke="#14100c" stroke-width="3" opacity=".3" />
+                <path d="M0 297 L90 285 L170 303 L260 289 L340 305" stroke="#f1e6d2" stroke-width="2" opacity=".2" />
+                <path d="M420 402 L520 388 L610 408 L720 392 L820 410 L1000 396" stroke="#14100c" stroke-width="3.2" opacity=".32" />
+                <path d="M420 407 L520 393 L610 413 L720 397 L820 415 L1000 401" stroke="#f1e6d2" stroke-width="2" opacity=".2" />
+                <path d="M0 506 L110 494 L230 512 L330 498 L430 514" stroke="#14100c" stroke-width="3" opacity=".3" />
+                <path d="M0 511 L110 499 L230 517 L330 503 L430 519" stroke="#f1e6d2" stroke-width="2" opacity=".18" />
+                <path d="M560 240 L650 228 L760 246 L860 232 L1000 244" stroke="#14100c" stroke-width="2.6" opacity=".28" />
+                <path d="M560 245 L650 233 L760 251 L860 237 L1000 249" stroke="#f1e6d2" stroke-width="1.8" opacity=".18" />
+              </g>
+              <rect width="1000" height="620" fill="url(#wallDepth)" />
+              <rect width="1000" height="620" fill="url(#wallShade)" />
+              <rect width="1000" height="620" filter="url(#grain)" opacity=".5" />
+            </g>
+
+            <!-- snow along the summit ridge -->
+            <path d="M0 140 L40 126 L95 134 L150 114 L215 128 L285 108 L350 124 L420 104 L500 120 L570 106 L640 126 L710 110 L790 130 L860 112 L930 128 L1000 116 L1000 132 L960 146 L930 140 L890 154 L860 132 L820 152 L790 144 L750 158 L710 130 L670 150 L640 142 L600 162 L570 128 L530 152 L500 140 L460 160 L420 126 L380 152 L350 144 L310 162 L285 130 L240 152 L215 144 L180 160 L150 134 L110 154 L95 150 L60 146 L40 144 L0 158 Z" fill="#f4f8fc" />
+            <path d="M0 158 L40 144 L60 146 L95 150 L110 154 L150 134 L180 160 L215 144 L240 152 L285 130 L310 162 L350 144 L380 152 L420 126 L460 160 L500 140 L530 152 L570 128 L600 162 L640 142 L670 150 L710 130 L750 158 L790 144 L820 152 L860 132 L890 154 L930 140 L960 146 L1000 132 L1000 138 L960 152 L930 146 L890 160 L860 138 L820 158 L790 150 L750 164 L710 136 L670 156 L640 148 L600 168 L570 134 L530 158 L500 146 L460 166 L420 132 L380 158 L350 150 L310 168 L285 136 L240 158 L215 150 L180 166 L150 140 L110 160 L95 156 L60 152 L40 150 L0 164 Z" fill="#8aa3c2" opacity=".55" />
+
+            <!-- forest at the foot of the mountain -->
+            <path d="M0 620 L0 578 L90 566 L200 580 L330 570 L470 584 L600 572 L740 582 L880 568 L1000 580 L1000 620 Z" fill="#0f2a22" />
+            <g id="trees"></g>
+            <rect y="440" width="1000" height="180" fill="url(#fog)" />
           </g>
-          <g class="cloud c2" fill="#fff" opacity=".13">
-            <ellipse cx="780" cy="150" rx="80" ry="15" /><ellipse cx="830" cy="138" rx="50" ry="13" /><ellipse cx="730" cy="141" rx="42" ry="11" />
-          </g>
-
-          <polygon points="0,600 0,380 90,320 170,370 260,300 340,360 420,330 500,380 580,330 660,365 740,295 830,355 910,315 1000,370 1000,600" fill="#3b3f7a" opacity=".75" />
-          <polygon points="0,600 0,450 100,410 200,455 310,400 420,460 540,430 650,470 760,415 870,460 1000,420 1000,600" fill="#2a3160" />
-
-          <!-- main mountain -->
-          <polygon points="0,600 40,585 110,520 150,470 205,410 250,350 300,300 345,255 395,200 440,150 470,105 500,60 530,100 565,150 610,200 655,255 700,305 750,360 800,415 850,470 905,525 960,580 1000,600" fill="url(#rock)" />
-          <polygon points="500,60 530,100 565,150 610,200 655,255 700,305 750,360 800,415 850,470 905,525 960,580 1000,600 560,600 545,430 520,260" fill="#0a0e2a" opacity=".32" />
-          <polygon points="500,60 470,105 484,98 498,120 514,98 530,100" fill="#f8fafc" />
-          <polygon points="440,150 424,172 436,167 446,180 456,166 470,170 470,105" fill="#e2e8f0" opacity=".85" />
-
-          <!-- foothills + trees -->
-          <polygon points="0,600 0,545 120,522 260,556 400,578 600,578 740,556 880,522 1000,545 1000,600" fill="#0f2a26" />
-          <g id="trees"></g>
-
-          <!-- trail -->
-          <path id="trailShadow" fill="none" stroke="rgba(0,0,0,.28)" stroke-width="10" stroke-linejoin="round" stroke-linecap="round" />
-          <path id="trailPath" fill="none" stroke="rgba(255,236,200,.9)" stroke-width="4" stroke-dasharray="2 9" stroke-linejoin="round" stroke-linecap="round" />
 
           <!-- base camp -->
-          <g>
-            <polygon points="150,578 172,550 194,578" fill="#f97316" />
-            <polygon points="172,550 183,578 194,578" fill="#c2410c" />
-            <polygon points="205,580 222,558 239,580" fill="#38bdf8" />
-            <polygon points="222,558 231,580 239,580" fill="#0284c7" />
+          <g class="camp">
+            <polygon points="36,612 62,578 88,612" fill="#f97316" />
+            <polygon points="62,578 76,612 88,612" fill="#c2410c" />
+            <polygon points="912,614 934,584 956,614" fill="#38bdf8" />
+            <polygon points="934,584 946,614 956,614" fill="#0284c7" />
           </g>
-
-          <!-- summit flag -->
-          <g>
-            <line x1="500" y1="86" x2="500" y2="38" stroke="#e2e8f0" stroke-width="2.5" />
-            <polygon points="500,38 536,49 500,60" fill="#ef4444" />
-          </g>
+          <rect width="1000" height="620" fill="url(#vig)" />
         </svg>
 
+        <div class="lanes" id="lanesLayer"></div>
         <div class="hikers" id="climbersContainer"></div>
         <div id="countdown" class="countdown hidden" aria-live="assertive">3</div>
         <div class="summit-label">🏁 Summit · 3,000 m</div>
@@ -396,6 +464,7 @@
     </div>
   </div>
 
+  <script src="js/hiker.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
