@@ -7,7 +7,9 @@ A multiplayer typing race game. Log in with a username and password, create a pr
 - **Username + Password** login/register (no email or phone needed)
 - **Custom rooms** with a private 6-character room code. Up to 8 players can join, and the host can start the race with any number of players (2, 3, 4...)
 - **3-2-1 countdown** before every race, so everyone starts together
-- **A real mountain trail**: every correct character moves your hiker along a switchback path from base camp to the summit (live altitude meter, walking animation, rank badge and a victory pose at the top)
+- **A real rock-face climb**: every player has their own rope lane on a tall cliff. Your climber is an articulated human who climbs on **all four limbs** (diagonal hand and foot moves), with a live altitude meter, a rank badge and a victory pose at the summit. Want a photo instead? Drop a wide mountain photo at `frontend/img/mountain.jpg` and the game uses it as the background automatically
+- **Climber editor** on your profile page: skin tone, hair style and color, jacket / hoodie / T-shirt / sleeveless, shorts or long pants, shoes, headwear, backpack and any color you like. Everyone in your race sees your climber
+- **Your data is permanent**: users, scores, history, leaderboard and avatars live in a PostgreSQL database, so nothing is lost when the site redeploys or restarts
 - **Single-box typing**: you type directly on the text you read. Typed text is highlighted step by step, mistakes turn red, and long passages scroll automatically
 - **Rematch button**: the host can restart the room with a new text in one click
 - **Practice mode** with four options: Random Text, Custom Text, **30 second Test** and **60 second Test** (a quick typing speed test)
@@ -23,25 +25,33 @@ A multiplayer typing race game. Log in with a username and password, create a pr
 
 ## Setup
 
+### 1. Create a free database (once)
+
+The game stores everything in PostgreSQL. A free [Neon](https://neon.tech) database is the easiest option: create a project and copy its **connection string** (it starts with `postgresql://`).
+
+### 2. Run the server
+
 ```bash
 cd backend
 npm install
+export DATABASE_URL="postgresql://...your connection string..."   # Windows PowerShell: $env:DATABASE_URL="..."
 npm start
 # or for development:
 npm run dev
 ```
 
-Open **http://localhost:3000** in your browser.
+Open **http://localhost:3000** in your browser. The tables are created automatically on the first start.
 
-### Optional environment variables (`backend/.env`)
+### Environment variables (`backend/.env` locally, or the Environment tab on Render)
 
 ```
+DATABASE_URL=postgresql://user:password@host/dbname   # required
 PORT=3000
-JWT_SECRET=put-a-long-random-string-here
-CORS_ORIGIN=https://your-site.example   # only needed if the frontend is hosted on a different domain
+JWT_SECRET=optional-long-random-string                 # optional, see below
+CORS_ORIGIN=https://your-site.example                  # only if the frontend is hosted on another domain
 ```
 
-If `JWT_SECRET` is not set, a secret is generated once and saved in `backend/.jwt_secret` (it is git-ignored), so logins survive restarts. On hosting with a temporary disk, set the `JWT_SECRET` environment variable instead.
+If `JWT_SECRET` is not set, a secret is generated once and stored in the database, so everyone stays logged in across restarts and redeploys.
 
 ## How to play
 
@@ -59,24 +69,28 @@ Custom-text games are saved to your profile but do not count for the leaderboard
 mountain-typing-race/
 ├── backend/
 │   ├── server.js      # Express + Socket.io (rooms, countdown, validation, practice)
-│   ├── db.js          # SQLite database + automatic migration
+│   ├── db.js          # PostgreSQL storage (users, scores, avatars, login secret)
+│   ├── avatar.js      # Validation of climber looks
 │   ├── texts.js       # Random text generator (20/30/40/60 words) + general passages
 │   ├── topics.js      # Biology, chemistry, physics and Bengal history sentences
 │   ├── package.json
-│   └── game.db        # (created automatically)
 ├── frontend/
 │   ├── index.html
 │   ├── css/style.css
-│   └── js/app.js
+│   └── js/
+│       ├── app.js
+│       └── hiker.js   # The climber: human figure, four-limb climbing, avatar options
 └── README.md
 ```
 
 ## Tech stack
 
-- **Backend**: Node.js, Express, Socket.io, better-sqlite3, bcrypt, JWT
+- **Backend**: Node.js, Express, Socket.io, pg (PostgreSQL), bcryptjs, JWT
 - **Frontend**: Vanilla HTML/CSS/JS (Web Audio for sounds, inline SVG for the chart)
-- **Database**: SQLite (file based). Existing `game.db` files are upgraded automatically.
+- **Database**: PostgreSQL (free Neon database recommended)
 
-## Deployment note
+## Deploying on Render
 
-SQLite stores data in `backend/game.db`. On hosts with a temporary disk (e.g. free Render/Railway plans) this file can be wiped on redeploy. Use a persistent disk/volume for real use.
+1. Set the **Build Command** to `cd backend && npm install` and the **Start Command** to `cd backend && npm start`.
+2. In the **Environment** tab add `DATABASE_URL` (your Neon connection string).
+3. Never store data in files on Render's free plan: its disk is wiped on every deploy, restart and spin-down. That is why this project uses an external database.
