@@ -13,7 +13,7 @@ if (!DATABASE_URL) {
 
 const isLocal = /@(localhost|127\.0\.0\.1)/.test(DATABASE_URL);
 const pool = new Pool({
-  connectionString: DATABASE_URL,
+  connectionString: DATABASE_URL.replace('sslmode=require', 'sslmode=verify-full'),
   ssl: isLocal ? false : { rejectUnauthorized: false },
   max: 5
 });
@@ -41,7 +41,7 @@ async function init() {
       wpm REAL NOT NULL,
       accuracy REAL NOT NULL,
       time_seconds REAL NOT NULL,
-      placing INTEGER,
+      place_no INTEGER,
       room_code TEXT,
       language TEXT NOT NULL DEFAULT 'en',
       mode TEXT NOT NULL DEFAULT 'race',
@@ -95,11 +95,11 @@ async function loginUser(username, password) {
   return { id: user.id, username: user.username, avatar: user.avatar || null };
 }
 
-async function saveScore(userId, wpm, accuracy, timeSeconds, placing, roomCode, language = 'en', mode = 'race') {
+async function saveScore(userId, wpm, accuracy, timeSeconds, place_no, roomCode, language = 'en', mode = 'race') {
   await pool.query(
-    `INSERT INTO scores (user_id, wpm, accuracy, time_seconds, placing, room_code, language, mode)
+    `INSERT INTO scores (user_id, wpm, accuracy, time_seconds, place_no, room_code, language, mode)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-    [userId, wpm, accuracy, timeSeconds, placing, roomCode || null, language, mode]
+    [userId, wpm, accuracy, timeSeconds, place_no, roomCode || null, language, mode]
   );
 }
 
@@ -124,7 +124,7 @@ async function getUserStats(userId) {
     pool.query(
       `SELECT MAX(wpm)::float AS best_wpm, AVG(wpm)::float AS avg_wpm, AVG(accuracy)::float AS avg_accuracy,
               COUNT(*)::int AS races,
-              COALESCE(SUM(CASE WHEN mode = 'race' AND placing = 1 THEN 1 ELSE 0 END), 0)::int AS wins
+              COALESCE(SUM(CASE WHEN mode = 'race' AND place_no = 1 THEN 1 ELSE 0 END), 0)::int AS wins
        FROM scores WHERE user_id = $1`,
       [userId]
     ),
@@ -134,7 +134,7 @@ async function getUserStats(userId) {
       [userId]
     ),
     pool.query(
-      `SELECT wpm, accuracy, time_seconds, placing AS rank, language, mode, played_at
+      `SELECT wpm, accuracy, time_seconds, place_no AS rank, language, mode, played_at
        FROM scores WHERE user_id = $1
        ORDER BY played_at DESC, id DESC LIMIT 20`,
       [userId]
