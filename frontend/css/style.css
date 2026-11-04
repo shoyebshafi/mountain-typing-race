@@ -441,90 +441,99 @@ table.recent td.wpm { color: var(--primary); font-weight: 700; }
 .stat-label { display: block; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
 .stat strong { font-family: var(--font-head); font-size: 1.3rem; font-weight: 700; color: var(--primary); }
 
-/* The mountain scene (5:3), never taller than half the screen */
+/* The mountain: a rock face seen from the front. Every player climbs their own lane. */
 .scene {
   position: relative;
-  width: min(100%, calc(50vh * 1.6667));
-  aspect-ratio: 5 / 3;
+  width: min(100%, calc(54vh * 1.613));
+  aspect-ratio: 1000 / 620;
   margin: 0 auto;
   border-radius: 20px;
   overflow: hidden;
+  container-type: inline-size;
   border: 1px solid rgba(255, 255, 255, 0.14);
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
-  background: #0b1130;
+  background: #2b3445;
 }
-.scene-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.twinkle { animation: twinkle 3s ease-in-out infinite; }
-@keyframes twinkle { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
-.cloud { animation: drift 40s ease-in-out infinite alternate; }
-.cloud.c2 { animation-duration: 55s; animation-direction: alternate-reverse; }
-@keyframes drift { from { transform: translateX(-60px); } to { transform: translateX(80px); } }
+.scene-photo {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+.scene.has-photo .scene-photo { opacity: 1; }
+.scene.has-photo .bg-layer, .scene.has-photo .camp { display: none; }
+.scene-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; z-index: 1; }
 
 .summit-label {
   position: absolute;
   top: 8px; right: 12px;
+  z-index: 5;
   font-size: 0.72rem;
   font-weight: 600;
-  color: #fff;
-  background: rgba(7, 11, 22, 0.55);
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.78);
   backdrop-filter: blur(6px);
   padding: 4px 10px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
 }
 
-/* Hikers walk along the trail */
-.hikers { position: absolute; inset: 0; pointer-events: none; }
+/* one rope and one flag per player */
+.lanes { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.lane { position: absolute; top: 19.5%; bottom: 3.5%; width: 0; }
+.lane-rope {
+  position: absolute;
+  left: -1px; top: 9%; bottom: 0;
+  width: 2px;
+  background: repeating-linear-gradient(to bottom, rgba(255, 255, 255, 0.45) 0 7px, transparent 7px 14px);
+}
+.lane-flag { position: absolute; left: -1px; top: 0; width: 2px; height: 9%; background: #f1f5f9; }
+.lane-flag::after {
+  content: '';
+  position: absolute;
+  left: 2px; top: 0;
+  width: 22px; height: 14px;
+  background: var(--c);
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+
+/* the climbers */
+.hikers { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
 .hiker {
   position: absolute;
   left: 0; top: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  transform: translate(-50%, -100%) scale(var(--s, 1));
-  transform-origin: 50% 100%;
-  transition: left 0.45s linear, top 0.45s linear, transform 0.45s linear, opacity 0.3s;
+  transform: translate(-50%, -100%);
+  transition: left 0.5s linear, top 0.5s linear, opacity 0.3s;
 }
 .hiker.gone { opacity: 0.3; }
 .hiker-tag {
   display: flex;
   flex-direction: column;
   align-items: center;
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   line-height: 1.15;
   padding: 2px 8px;
-  margin-bottom: 2px;
+  margin-bottom: 1px;
   border-radius: 9px;
   white-space: nowrap;
-  background: rgba(7, 11, 22, 0.78);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(7, 11, 22, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.16);
 }
-.hiker.me .hiker-tag { border-color: var(--primary); box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.35), 0 0 14px rgba(52, 211, 153, 0.35); }
+.hiker.odd .hiker-tag { transform: translateY(-13px); }
+.hiker.me .hiker-tag { border-color: var(--primary); box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.35), 0 0 14px rgba(52, 211, 153, 0.4); }
 .hiker-name { font-weight: 700; max-width: 96px; overflow: hidden; text-overflow: ellipsis; }
-.hiker-wpm { color: var(--primary); font-weight: 700; font-size: 0.6rem; }
-.hiker-fig { width: 30px; height: 56px; overflow: visible; }
-.hiker.face-left .hiker-fig { transform: scaleX(-1); }
-.hiker-fig .jacket { fill: var(--c); }
-.hiker-fig .pack { fill: var(--c); filter: brightness(0.62); }
-.hiker-fig .hat { fill: var(--c); filter: brightness(1.3); }
-.hiker-fig .arm { stroke: var(--c); stroke-width: 3.6; stroke-linecap: round; filter: brightness(0.85); }
-.hiker-fig .pole { stroke: #e2e8f0; stroke-width: 1.5; stroke-linecap: round; }
-.hiker-fig .arm-up { display: none; }
-.hiker-fig .leg, .hiker-fig .hiker-body { transform-box: fill-box; }
-.hiker-fig .leg { transform-origin: 50% 0%; }
-
-.hiker.walking .leg-l { animation: swingA 0.36s ease-in-out infinite; }
-.hiker.walking .leg-r { animation: swingB 0.36s ease-in-out infinite; }
-.hiker.walking .hiker-body { animation: bob 0.36s ease-in-out infinite; }
-@keyframes swingA { 0%, 100% { transform: rotate(-26deg); } 50% { transform: rotate(26deg); } }
-@keyframes swingB { 0%, 100% { transform: rotate(26deg); } 50% { transform: rotate(-26deg); } }
-@keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
-
-.hiker.summit .arm-up { display: inline; }
-.hiker.summit .arm-down, .hiker.summit .pole { display: none; }
-.hiker.summit .hiker-body { animation: cheer 0.6s ease-in-out infinite; }
-@keyframes cheer { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
-
+.hiker-wpm { color: var(--primary); font-weight: 700; font-size: 0.58rem; }
+.hiker-fig {
+  display: block;
+  width: clamp(30px, 6.6cqw, 68px);
+  height: auto;
+  overflow: visible;
+  filter: drop-shadow(0 3px 3px rgba(0, 0, 0, 0.45));
+}
 .hiker-rank {
   position: absolute;
   top: -10px; right: -16px;
@@ -672,9 +681,6 @@ table.recent td.wpm { color: var(--primary); font-weight: 700; }
   .countdown { font-size: 4.5rem; }
   .typing-area { --fs: 1.18rem; }
   .quote-display { padding: 16px 16px; height: calc(var(--fs) * var(--lh) * 4 + 32px); }
-  .hiker-fig { width: 24px; height: 45px; }
-  .hiker-tag { font-size: 0.58rem; padding: 1px 6px; }
-  .hiker-name { max-width: 64px; }
   .practice-row { flex-direction: column; align-items: stretch; }
 }
 
@@ -825,4 +831,72 @@ table.recent td.wpm { color: var(--primary); font-weight: 700; }
   .st-row { grid-template-columns: 28px 26px 1fr 64px; }
   .st-bar, .st-status { display: none; }
   .race-panel { padding: 18px; }
+}
+
+
+/* ===================== climber (avatar) editor ===================== */
+.avatar-panel { margin-bottom: 20px; }
+.av-head .hint { margin-bottom: 14px; }
+.av-layout { display: grid; grid-template-columns: 230px 1fr; gap: 26px; align-items: start; }
+.av-stage { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.av-wall {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(120% 70% at 85% 0%, rgba(255, 214, 160, 0.45), transparent 60%),
+    repeating-linear-gradient(100deg, rgba(0, 0, 0, 0.08) 0 3px, transparent 3px 9px),
+    linear-gradient(180deg, #8d857b, #5e5750 70%, #3d3a36);
+}
+.av-preview svg { width: 175px; height: auto; display: block; filter: drop-shadow(0 6px 6px rgba(0, 0, 0, 0.45)); }
+.av-toggle { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--muted); cursor: pointer; }
+.av-toggle input { width: auto; }
+.av-controls { display: flex; flex-direction: column; gap: 18px; }
+.av-group h4 {
+  font-family: var(--font-head);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.av-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.av-label { width: 92px; flex: none; font-size: 0.82rem; color: #cbd5e1; }
+.av-opts { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.opt-btn {
+  padding: 6px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(7, 11, 22, 0.5);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.opt-btn:hover { color: var(--text); }
+.opt-btn.active { color: #fff; border-color: var(--primary); background: rgba(52, 211, 153, 0.2); }
+.sw {
+  width: 24px; height: 24px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.22);
+  cursor: pointer;
+}
+.sw.active { border-color: #fff; box-shadow: 0 0 0 2px var(--primary); }
+.color-pick { width: 34px; height: 26px; padding: 0; border: none; background: none; border-radius: 6px; cursor: pointer; }
+.av-actions { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 18px; }
+.av-msg { margin-right: auto; font-size: 0.85rem; color: var(--primary); }
+
+@media (max-width: 700px) {
+  .av-layout { grid-template-columns: 1fr; }
+  .av-wall { max-width: 220px; margin: 0 auto; }
+  .av-label { width: 100%; }
+  .hiker-tag { font-size: 0.56rem; padding: 1px 5px; }
+  .hiker-name { max-width: 56px; }
+  .hiker-wpm { display: none; }
 }
