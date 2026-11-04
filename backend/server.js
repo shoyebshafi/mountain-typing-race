@@ -6,36 +6,24 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const path = require('path');
-const fs = require('fs');
 
 const {
+  init: initDb,
+  getJwtSecret,
   registerUser,
   loginUser,
   saveScore,
   getLeaderboard,
   getUserStats,
-  findUserById
+  findUserById,
+  getAvatar,
+  setAvatar
 } = require('./db');
+const { sanitizeAvatar } = require('./avatar');
 const { buildText, detectLanguage } = require('./texts');
 
-// The signing secret must survive restarts, otherwise every user would be logged out.
-// Priority: JWT_SECRET env var -> backend/.jwt_secret file (created once, never committed).
-function loadJwtSecret() {
-  if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
-  const file = path.join(__dirname, '.jwt_secret');
-  try {
-    const saved = fs.readFileSync(file, 'utf8').trim();
-    if (saved.length >= 32) return saved;
-  } catch { /* first run */ }
-  const created = crypto.randomBytes(48).toString('hex');
-  try {
-    fs.writeFileSync(file, created, { mode: 0o600 });
-  } catch (e) {
-    console.warn('[warn] Could not save .jwt_secret. Set the JWT_SECRET environment variable so logins survive restarts.');
-  }
-  return created;
-}
-const JWT_SECRET = loadJwtSecret();
+// The signing secret is kept in the database (or in the JWT_SECRET env var), so logins survive every restart.
+let JWT_SECRET = process.env.JWT_SECRET || null;
 // "Always logged in": the token lasts ~10 years. Only the Logout button ends a session.
 const TOKEN_LIFETIME = '3650d';
 const PORT = process.env.PORT || 3000;
@@ -124,10 +112,11 @@ function generateRoomCode() {
   return code;
 }
 
-function newPlayer(user) {
+function newPlayer(user, avatar) {
   return {
     id: user.id,
     username: user.username,
+    avatar: avatar || null,
     progress: 0,
     wpm: 0,
     accuracy: 100,
@@ -170,7 +159,7 @@ app.post('/api/register', async (req, res) => {
     const { username, password } = req.body;
     const user = await registerUser(username, password);
     const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: TOKEN_LIFETIME });
-    res.json({ token, user: { id: user.id, username: user.username } });
+    res.json({ token, user: { id: user.id, username: user.username, avatar: user.avatar || null } });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -181,22 +170,44 @@ app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
     const user = await loginUser(username, password);
     const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: TOKEN_LIFETIME });
-    res.json({ token, user: { id: user.id, username: user.username } });
+    res.json({ token, user: { id: user.id, username: user.username, avatar: user.avatar || null } });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
-app.get('/api/me', authMiddleware, (req, res) => {
-  const user = findUserById(req.user.id);
-  if (!user) return res.status(404).json({ error: 'User not found' });
-  res.json({ user, stats: getUserStats(req.user.id) });
+app.get('/api/me', authMiddleware, async (req, res) => {
+  try {
+    const user = await findUserById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({ user, stats: await getUserStats(req.user.id) });
+  } catch (err) {
+    console.error('/api/me error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
-app.get('/api/leaderboard', (req, res) => {
-  const limit = Math.min(parseInt(req.query.limit) || 20, 50);
-  const lang = req.query.lang === 'bn' ? 'bn' : 'en';
-  res.json(getLeaderboard(lang, limit));
+app.put('/api/avatar', authMiddleware, async (req, res) => {
+  const avatar = sanitizeAvatar(req.body && req.body.avatar);
+  if (!avatar) return res.status(400).json({ error: 'Invalid avatar' });
+  try {
+    await setAvatar(req.user.id, avatar);
+    res.json({ avatar });
+  } catch (err) {
+    console.error('/api/avatar error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.get('/api/leaderboard', async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 20, 50);
+    const lang = req.query.lang === 'bn' ? 'bn' : 'en';
+    res.json(await getLeaderboard(lang, limit));
+  } catch (err) {
+    console.error('/api/leaderboard error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 app.get('*', (req, res) => {
@@ -204,15 +215,20 @@ app.get('*', (req, res) => {
 });
 
 // ========== Socket.IO ==========
-io.use((socket, next) => {
+io.use(async (socket, next) => {
   const token = socket.handshake.auth?.token;
   if (!token) return next(new Error('Authentication required'));
   try {
     socket.user = jwt.verify(token, JWT_SECRET);
-    next();
   } catch {
-    next(new Error('Invalid token'));
+    return next(new Error('Invalid token'));
   }
+  try {
+    socket.avatar = await getAvatar(socket.user.id);
+  } catch (e) {
+    socket.avatar = null;
+  }
+  next();
 });
 
 io.on('connection', (socket) => {
@@ -245,7 +261,7 @@ io.on('connection', (socket) => {
       raceTimer: null
     };
 
-    rooms[code].players[socket.id] = newPlayer(socket.user);
+    rooms[code].players[socket.id] = newPlayer(socket.user, socket.avatar);
     socket.join(code);
     socket.roomCode = code;
 
@@ -267,7 +283,7 @@ io.on('connection', (socket) => {
 
     if (socket.roomCode) leaveRoom(socket);
 
-    room.players[socket.id] = newPlayer(socket.user);
+    room.players[socket.id] = newPlayer(socket.user, socket.avatar);
     socket.join(roomCode);
     socket.roomCode = roomCode;
 
@@ -338,14 +354,10 @@ io.on('connection', (socket) => {
         time: timeSec.toFixed(1),
         finished: true
       });
-      try {
-        saveScore(
-          player.id, player.wpm, player.accuracy, timeSec, player.rank,
-          room.code, room.language, room.customText ? 'custom' : 'race'
-        );
-      } catch (e) {
-        console.error('Score save error:', e.message);
-      }
+      saveScore(
+        player.id, player.wpm, player.accuracy, timeSec, player.rank,
+        room.code, room.language, room.customText ? 'custom' : 'race'
+      ).catch((e) => console.error('Score save error:', e.message));
     }
 
     io.to(room.code).emit('progress_update', {
@@ -376,6 +388,15 @@ io.on('connection', (socket) => {
   });
 
   socket.on('leave_room', () => leaveRoom(socket));
+
+  // The player saved a new look in their profile
+  socket.on('avatar_updated', async () => {
+    try {
+      socket.avatar = await getAvatar(socket.user.id);
+      const room = rooms[socket.roomCode];
+      if (room && room.players[socket.id]) room.players[socket.id].avatar = socket.avatar;
+    } catch (e) { /* ignore */ }
+  });
 
   // ---------- Practice (solo): random text, custom text, 30s / 60s tests ----------
   socket.on('practice_start', ({ mode = 'random', duration, language = 'en', topic = 'mix', words, customText } = {}) => {
@@ -431,11 +452,8 @@ io.on('connection', (socket) => {
     }
 
     p.done = true;
-    try {
-      saveScore(socket.user.id, wpm, accuracy, timeSec, null, null, p.language, p.mode);
-    } catch (e) {
-      console.error('Score save error:', e.message);
-    }
+    saveScore(socket.user.id, wpm, accuracy, timeSec, null, null, p.language, p.mode)
+      .catch((e) => console.error('Score save error:', e.message));
     socket.emit('practice_result', {
       wpm,
       accuracy,
@@ -544,6 +562,7 @@ function publicRoom(room) {
     players: Object.entries(room.players).map(([sid, p]) => ({
       socketId: sid,
       username: p.username,
+      avatar: p.avatar,
       progress: p.progress,
       wpm: p.wpm,
       accuracy: p.accuracy,
@@ -553,6 +572,13 @@ function publicRoom(room) {
   };
 }
 
-server.listen(PORT, () => {
-  console.log(`🏔️ Mountain Type server running on http://localhost:${PORT}`);
+(async () => {
+  await initDb();
+  if (!JWT_SECRET) JWT_SECRET = await getJwtSecret();
+  server.listen(PORT, () => {
+    console.log(`🏔️ Mountain Type server running on http://localhost:${PORT}`);
+  });
+})().catch((err) => {
+  console.error('Failed to start the server:', err);
+  process.exit(1);
 });
