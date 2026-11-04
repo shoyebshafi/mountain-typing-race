@@ -105,7 +105,8 @@ function langName(l) {
 }
 
 function formatDate(s) {
-  const d = new Date(String(s).replace(' ', 'T') + 'Z');
+  const str = String(s);
+  const d = new Date(/(Z|[+-]\d\d:?\d\d)$/.test(str) ? str : str.replace(' ', 'T') + 'Z');
   return isNaN(d) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
@@ -511,15 +512,21 @@ async function openProfile() {
   $('#profileStats').innerHTML = '<p class="hint">Loading...</p>';
   $('#profileChart').innerHTML = '';
   $('#profileRecent').innerHTML = '';
+  initAvatarEditor();
   showView('profile');
   try {
     const res = await fetch('/api/me', { headers: { Authorization: 'Bearer ' + state.token } });
-    if (res.status === 401) {
+    if (res.status === 401 || res.status === 404) {
       logout();
-      toast('Your session expired. Please log in again.');
+      toast('Your account was not found. Please register or log in again.');
       return;
     }
     const data = await res.json();
+    if (data.user && data.user.avatar) {
+      state.user.avatar = data.user.avatar;
+      localStorage.setItem('mtr_user', JSON.stringify(state.user));
+      initAvatarEditor();
+    }
     renderProfile(data.stats);
   } catch {
     $('#profileStats').innerHTML = '<p class="hint">Failed to load profile.</p>';
@@ -683,22 +690,36 @@ function setupRace(text, players, opts = {}) {
 
   const container = $('#climbersContainer');
   container.innerHTML = '';
+  const lanes = $('#lanesLayer');
+  lanes.innerHTML = '';
+  const count = players.length;
   players.forEach((p, idx) => {
     const id = p.socketId;
     const isMe = state.mode === 'practice' ? true : id === state.socket.id;
+    const color = state.colors[idx % state.colors.length];
+    const avatar = avatarFor(state.mode === 'practice' ? state.user.avatar : p.avatar, idx);
+
+    const lane = document.createElement('div');
+    lane.className = 'lane';
+    lane.style.left = laneX(idx, count) / 10 + '%';
+    lane.style.setProperty('--c', color);
+    lane.innerHTML = '<span class="lane-rope"></span><span class="lane-flag"></span>';
+    lanes.appendChild(lane);
+
     const hiker = document.createElement('div');
-    hiker.className = 'hiker' + (isMe ? ' me' : '');
+    hiker.className = 'hiker' + (isMe ? ' me' : '') + (idx % 2 ? ' odd' : '');
     hiker.id = `climber-${id}`;
     hiker.dataset.user = p.username;
     hiker.dataset.slot = String(idx);
+    hiker.dataset.count = String(count);
     hiker.dataset.progress = '0';
-    hiker.style.setProperty('--c', state.colors[idx % state.colors.length]);
+    hiker._phase = 0.12;
     hiker.innerHTML = `
       <div class="hiker-tag">
         <span class="hiker-name">${escapeHtml(p.username)}${isMe ? ' (you)' : ''}</span>
         <span class="hiker-wpm" id="wpm-${id}">0 WPM</span>
       </div>
-      ${hikerSvg()}
+      ${Hiker.buildSvg(avatar, Hiker.computePose(0.12, false, 0))}
       <span class="hiker-rank hidden" id="rank-${id}"></span>
     `;
     container.appendChild(hiker);
@@ -831,84 +852,85 @@ function updateQuote(typedArr) {
   if (Math.abs(wanted - box.scrollTop) > lh * 0.5) box.scrollTop = wanted;
 }
 
-// ----- The mountain: a switchback trail from base camp to the summit -----
+// ----- The mountain: a rock face seen from the front. Every player climbs their own lane. -----
 const SUMMIT_METERS = 3000;
-// Waypoints in scene units (the scene is 1000 x 600)
-const TRAIL = [[200, 570], [700, 540], [300, 485], [690, 430], [340, 375], [650, 325], [390, 275], [610, 228], [450, 180], [535, 140], [500, 84]];
-const TRAIL_SEG = [];
-let trailTotal = 0;
-for (let i = 1; i < TRAIL.length; i++) {
-  const [x0, y0] = TRAIL[i - 1];
-  const [x1, y1] = TRAIL[i];
-  const len = Math.hypot(x1 - x0, y1 - y0);
-  TRAIL_SEG.push({ x0, y0, x1, y1, start: trailTotal, len });
-  trailTotal += len;
+// Scene units (the scene is 1000 x 620): feet at the foot of the wall -> feet on the summit ridge
+const START_Y = 592;
+const TOP_Y = 188;
+
+function laneX(slot, count) {
+  const gap = Math.min(118, 820 / Math.max(count, 1));
+  return 500 + (slot - (count - 1) / 2) * gap;
 }
 
-// progress 0..100  ->  a point on the trail
-function trailPoint(progress) {
-  const d = (Math.min(Math.max(progress, 0), 100) / 100) * trailTotal;
-  const seg = TRAIL_SEG.find((s) => d <= s.start + s.len) || TRAIL_SEG[TRAIL_SEG.length - 1];
-  const t = seg.len ? (d - seg.start) / seg.len : 0;
-  return { x: seg.x0 + (seg.x1 - seg.x0) * t, y: seg.y0 + (seg.y1 - seg.y0) * t, dx: seg.x1 - seg.x0 };
-}
-
+// pine trees at the foot of the mountain
 function buildScene() {
-  const d = TRAIL.map(([x, y], i) => (i ? 'L' : 'M') + x + ' ' + y).join(' ');
-  $('#trailPath').setAttribute('d', d);
-  $('#trailShadow').setAttribute('d', d);
-
   let seed = 7;
   const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-
-  let stars = '';
-  for (let i = 0; i < 70; i++) {
-    stars += `<circle cx="${Math.round(rnd() * 1000)}" cy="${Math.round(rnd() * 240)}" r="${(0.5 + rnd() * 1.2).toFixed(1)}" fill="#fff" opacity="${(0.35 + rnd() * 0.55).toFixed(2)}"${i % 4 === 0 ? ' class="twinkle"' : ''}/>`;
-  }
-  $('#stars').innerHTML = stars;
-
   let trees = '';
-  for (let x = 14; x < 1000; x += 34) {
-    const y = 556 + rnd() * 34;
-    const h = 22 + rnd() * 14;
-    trees += `<g><rect x="${x - 1.5}" y="${y}" width="3" height="6" fill="#3b2a1a"/>` +
-      `<polygon points="${x},${y - h} ${x - 10},${y + 2} ${x + 10},${y + 2}" fill="#0b4a37"/>` +
-      `<polygon points="${x},${y - h - 8} ${x - 7},${y - h + 12} ${x + 7},${y - h + 12}" fill="#0f5c44"/></g>`;
+  for (let x = 10; x < 1000; x += 24) {
+    const y = 574 + rnd() * 38;
+    const h = 26 + rnd() * 22;
+    const w = 8 + rnd() * 5;
+    trees += `<g><rect x="${x - 1.5}" y="${y}" width="3" height="7" fill="#33241a"/>` +
+      `<polygon points="${x},${y - h} ${x - w},${y + 3} ${x + w},${y + 3}" fill="#06291e"/>` +
+      `<polygon points="${x},${y - h - 9} ${x - w * 0.7},${y - h + 14} ${x + w * 0.7},${y - h + 14}" fill="#0a3828"/></g>`;
   }
   $('#trees').innerHTML = trees;
 }
 buildScene();
 
-function hikerSvg() {
-  return `<svg class="hiker-fig" viewBox="-16 -50 32 54" aria-hidden="true">
-    <ellipse cx="0" cy="1" rx="10" ry="2.6" fill="rgba(0,0,0,.35)"/>
-    <g class="hiker-body">
-      <g class="leg leg-l"><rect x="-5.5" y="-17" width="4.5" height="17" rx="2.2" fill="#1e293b"/></g>
-      <g class="leg leg-r"><rect x="1" y="-17" width="4.5" height="17" rx="2.2" fill="#0f172a"/></g>
-      <rect class="pack" x="-13" y="-31" width="8" height="15" rx="3"/>
-      <rect class="jacket" x="-8" y="-31" width="16" height="16" rx="5"/>
-      <line class="arm arm-down" x1="6" y1="-28" x2="9" y2="-17"/>
-      <line class="arm arm-up" x1="-6" y1="-28" x2="-12" y2="-42"/>
-      <line class="arm arm-up" x1="6" y1="-28" x2="12" y2="-42"/>
-      <line class="pole" x1="9" y1="-19" x2="15" y2="1"/>
-      <circle cx="0" cy="-36" r="5.5" fill="#fcd5b0"/>
-      <path class="hat" d="M-6 -37 a6 6 0 0 1 12 0 z"/>
-    </g>
-  </svg>`;
+// Optional: put a real mountain photo at frontend/img/mountain.jpg and the game uses it as the background.
+(function loadScenePhoto() {
+  const img = new Image();
+  img.onload = () => {
+    $('#scenePhoto').style.backgroundImage = `url("${img.src}")`;
+    $('#mountainTrack').classList.add('has-photo');
+  };
+  img.src = 'img/mountain.jpg';
+})();
+
+// A player without a saved look gets a default one in their own colour.
+function avatarFor(av, idx) {
+  return Hiker.sanitize(av) || Hiker.defaultFor(state.colors[idx % state.colors.length], idx);
 }
 
 function placeHiker(el, progress) {
-  const pt = trailPoint(progress);
   const slot = Number(el.dataset.slot || 0);
-  // spread players side by side so nobody hides behind someone else
-  const x = pt.x + ((slot % 4) - 1.5) * 12;
-  const y = pt.y + (slot % 2) * 5;
-  el.style.left = x / 10 + '%';
-  el.style.top = y / 6 + '%';
-  // the higher up the mountain, the smaller the hiker looks
-  el.style.setProperty('--s', (1 - 0.38 * (progress / 100)).toFixed(3));
+  const count = Number(el.dataset.count || 1);
+  const p = Math.min(Math.max(progress, 0), 100);
+  const y = START_Y - ((START_Y - TOP_Y) * p) / 100;
+  el.style.left = laneX(slot, count) / 10 + '%';
+  el.style.top = y / 6.2 + '%';
   el.style.zIndex = String(Math.round(y));
-  el.classList.toggle('face-left', pt.dx < 0);
+}
+
+// The climbing gait: while a player is moving up, their hands and feet keep reaching for the next hold.
+let gaitRaf = 0;
+let gaitLast = 0;
+function gaitLoop(ts) {
+  const dt = Math.min(0.05, (ts - gaitLast) / 1000);
+  gaitLast = ts;
+  let active = false;
+  document.querySelectorAll('#climbersContainer .hiker').forEach((el) => {
+    const svg = el._svg || (el._svg = el.querySelector('.hiker-fig'));
+    if (!svg) return;
+    if (el.classList.contains('summit')) {
+      Hiker.applyPose(svg, Hiker.computePose(0, true, ts / 1000 + Number(el.dataset.slot || 0) * 0.7));
+      active = true;
+    } else if (el._moveUntil && el._moveUntil > ts) {
+      el._phase = (el._phase || 0) + dt * 1.0;
+      Hiker.applyPose(svg, Hiker.computePose(el._phase, false, 0));
+      active = true;
+    }
+  });
+  gaitRaf = active ? requestAnimationFrame(gaitLoop) : 0;
+}
+function startGait() {
+  if (!gaitRaf) {
+    gaitLast = performance.now();
+    gaitRaf = requestAnimationFrame(gaitLoop);
+  }
 }
 
 function updateClimber(id, progress, extra = {}) {
@@ -919,9 +941,8 @@ function updateClimber(id, progress, extra = {}) {
     const prev = parseFloat(el.dataset.progress || '0');
     placeHiker(el, progress);
     if (progress > prev) {
-      el.classList.add('walking');
-      clearTimeout(el._t);
-      el._t = setTimeout(() => el.classList.remove('walking'), 600);
+      el._moveUntil = performance.now() + 550;
+      startGait();
     }
     el.dataset.progress = String(progress);
     if (id === myLaneId()) {
@@ -934,7 +955,6 @@ function updateClimber(id, progress, extra = {}) {
     if (w) w.textContent = extra.wpm + ' WPM';
   }
   if (extra.finished) {
-    el.classList.remove('walking');
     el.classList.add('summit');
     if (extra.rank) {
       const badge = document.getElementById(`rank-${id}`);
@@ -943,6 +963,7 @@ function updateClimber(id, progress, extra = {}) {
         badge.classList.remove('hidden');
       }
     }
+    startGait();
   }
 }
 
@@ -1236,10 +1257,145 @@ $('#backToLobbyBtn').addEventListener('click', () => {
   enterLobby();
 });
 
+// ========== Climber (avatar) editor ==========
+const AV_GROUPS = [
+  { title: 'Body', rows: [
+    { key: 'skin', label: 'Skin tone', kind: 'color', colors: Hiker.SKIN_TONES },
+    { key: 'hair', label: 'Hair', kind: 'choice', options: [['short', 'Short'], ['long', 'Long'], ['bun', 'Bun'], ['buzz', 'Buzz cut'], ['bald', 'Bald']] },
+    { key: 'hairColor', label: 'Hair color', kind: 'color', colors: Hiker.HAIR_COLORS }
+  ] },
+  { title: 'Clothes', rows: [
+    { key: 'outfit', label: 'Top', kind: 'choice', options: [['jacket', 'Jacket'], ['hoodie', 'Hoodie'], ['tshirt', 'T-shirt'], ['sleeveless', 'Sleeveless']] },
+    { key: 'top', label: 'Top color', kind: 'color', colors: Hiker.PALETTE },
+    { key: 'legs', label: 'Bottoms', kind: 'choice', options: [['long', 'Long pants'], ['shorts', 'Shorts']] },
+    { key: 'pants', label: 'Bottom color', kind: 'color', colors: Hiker.PALETTE },
+    { key: 'shoes', label: 'Shoe color', kind: 'color', colors: Hiker.PALETTE }
+  ] },
+  { title: 'Gear', rows: [
+    { key: 'hat', label: 'Headwear', kind: 'choice', options: [['none', 'None'], ['beanie', 'Beanie'], ['cap', 'Cap'], ['helmet', 'Helmet']] },
+    { key: 'hatColor', label: 'Headwear color', kind: 'color', colors: Hiker.PALETTE },
+    { key: 'pack', label: 'Backpack', kind: 'choice', options: [['none', 'None'], ['small', 'Small'], ['large', 'Large']] },
+    { key: 'packColor', label: 'Backpack color', kind: 'color', colors: Hiker.PALETTE }
+  ] }
+];
+
+let avDraft = null;
+let avRaf = 0;
+let avPhase = 0.12;
+
+function initAvatarEditor() {
+  avDraft = Object.assign({}, Hiker.sanitize(state.user && state.user.avatar) || Hiker.DEFAULT_AVATAR);
+  $('#avControls').innerHTML = AV_GROUPS.map((g) => `
+    <div class="av-group">
+      <h4>${g.title}</h4>
+      ${g.rows.map((r) => `
+        <div class="av-row">
+          <span class="av-label">${r.label}</span>
+          <div class="av-opts">
+            ${r.kind === 'choice'
+              ? r.options.map(([v, t]) => `<button type="button" class="opt-btn" data-key="${r.key}" data-val="${v}">${t}</button>`).join('')
+              : r.colors.map((c) => `<button type="button" class="sw" data-key="${r.key}" data-val="${c}" style="background:${c}" aria-label="${c}"></button>`).join('') +
+                `<input type="color" class="color-pick" data-key="${r.key}" aria-label="Custom color" />`}
+          </div>
+        </div>`).join('')}
+    </div>`).join('');
+  $('#avMsg').textContent = '';
+  syncAvatarEditor();
+  startAvatarPreview();
+}
+
+function syncAvatarEditor() {
+  $$('#avControls .opt-btn').forEach((b) => b.classList.toggle('active', avDraft[b.dataset.key] === b.dataset.val));
+  $$('#avControls .sw').forEach((b) => b.classList.toggle('active', avDraft[b.dataset.key] === b.dataset.val));
+  $$('#avControls .color-pick').forEach((i) => { i.value = avDraft[i.dataset.key]; });
+  renderAvatarPreview();
+}
+
+function renderAvatarPreview() {
+  const cheer = $('#avCheer').checked;
+  $('#avPreview').innerHTML = Hiker.buildSvg(avDraft, Hiker.computePose(avPhase, cheer, 0));
+}
+
+// the preview keeps climbing so you can see how the clothes move
+function startAvatarPreview() {
+  cancelAnimationFrame(avRaf);
+  let last = performance.now();
+  const loop = (ts) => {
+    if (!isVisible('profile')) { avRaf = 0; return; }
+    const dt = Math.min(0.05, (ts - last) / 1000);
+    last = ts;
+    const svg = $('#avPreview').firstElementChild;
+    if (svg) {
+      const cheer = $('#avCheer').checked;
+      if (!cheer) avPhase += dt * 0.8;
+      Hiker.applyPose(svg, Hiker.computePose(avPhase, cheer, ts / 1000));
+    }
+    avRaf = requestAnimationFrame(loop);
+  };
+  avRaf = requestAnimationFrame(loop);
+}
+
+$('#avControls').addEventListener('click', (e) => {
+  const b = e.target.closest('.opt-btn, .sw');
+  if (!b || !avDraft) return;
+  avDraft[b.dataset.key] = b.dataset.val;
+  syncAvatarEditor();
+});
+$('#avControls').addEventListener('input', (e) => {
+  if (!e.target.classList.contains('color-pick') || !avDraft) return;
+  avDraft[e.target.dataset.key] = e.target.value.toLowerCase();
+  $$('#avControls .sw').forEach((b) => b.classList.toggle('active', avDraft[b.dataset.key] === b.dataset.val));
+  $$('#avControls .opt-btn').forEach((b) => b.classList.toggle('active', avDraft[b.dataset.key] === b.dataset.val));
+  renderAvatarPreview();
+});
+$('#avCheer').addEventListener('change', renderAvatarPreview);
+$('#avResetBtn').addEventListener('click', () => {
+  avDraft = Object.assign({}, Hiker.DEFAULT_AVATAR);
+  $('#avMsg').textContent = '';
+  syncAvatarEditor();
+});
+$('#avSaveBtn').addEventListener('click', async () => {
+  const msg = $('#avMsg');
+  msg.textContent = 'Saving...';
+  try {
+    const res = await fetch('/api/avatar', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + state.token },
+      body: JSON.stringify({ avatar: avDraft })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not save');
+    state.user.avatar = data.avatar;
+    localStorage.setItem('mtr_user', JSON.stringify(state.user));
+    if (state.socket) state.socket.emit('avatar_updated');
+    msg.textContent = 'Saved ✓ Your climber is ready for the mountain.';
+  } catch (err) {
+    msg.textContent = '';
+    toast(err.message);
+  }
+});
+
 // ========== Init ==========
+// If the server does not know this account any more (for example the database was reset), log out cleanly.
+async function refreshMe() {
+  try {
+    const res = await fetch('/api/me', { headers: { Authorization: 'Bearer ' + state.token } });
+    if (res.status === 401 || res.status === 404) {
+      logout();
+      toast('Your account was not found. Please register or log in again.');
+      return;
+    }
+    if (!res.ok) return;
+    const data = await res.json();
+    state.user = { id: data.user.id, username: data.user.username, avatar: data.user.avatar || null };
+    localStorage.setItem('mtr_user', JSON.stringify(state.user));
+  } catch { /* offline or server waking up: keep the session */ }
+}
+
 if (state.token && state.user) {
   connectSocket();
   enterLobby();
+  refreshMe();
 } else {
   showView('auth');
 }
