@@ -7,7 +7,9 @@ A multiplayer typing race game. Log in with a username and password, create a pr
 - **Username + Password** login/register (no email or phone needed)
 - **Custom rooms** with a private 6-character room code. Up to 8 players can join, and the host can start the race with any number of players (2, 3, 4...)
 - **3-2-1 countdown** before every race, so everyone starts together
-- **A real rock-face climb**: every player has their own rope lane on a tall cliff. Your climber is an articulated human who climbs on **all four limbs** (diagonal hand and foot moves), with a live altitude meter, a rank badge and a victory pose at the summit. Want a photo instead? Drop a wide mountain photo at `frontend/img/mountain.jpg` and the game uses it as the background automatically
+- **A real rock-face climb**: every player has their own real rope hanging from an anchor bolt on a tall cliff. Your climber is an articulated human who climbs on **all four limbs** (diagonal hand and foot moves), with a live altitude meter, a rank badge and a victory pose at the summit. Want a photo instead? Drop a wide mountain photo at `frontend/img/mountain.jpg` and the game uses it as the background automatically
+- **Player profiles**: click any name on the leaderboard to see that player's climber, stats and graph
+- **Delete account**: at the bottom of your own profile (needs your password; deletes your scores too)
 - **Climber editor** on your profile page: skin tone, hair style and color, jacket / hoodie / T-shirt / sleeveless, shorts or long pants, shoes, headwear, backpack and any color you like. Everyone in your race sees your climber
 - **Your data is permanent**: users, scores, history, leaderboard and avatars live in a PostgreSQL database, so nothing is lost when the site redeploys or restarts
 - **Single-box typing**: you type directly on the text you read. Typed text is highlighted step by step, mistakes turn red, and long passages scroll automatically
@@ -16,6 +18,7 @@ A multiplayer typing race game. Log in with a username and password, create a pr
 - **Profile page**: best/average WPM, accuracy, wins, a WPM graph of your last 20 games and a recent games table
 - **Separate leaderboards** for English and Bangla (best score per player)
 - **Sound effects** (key clicks, countdown, finish) with a mute button
+- **Word-by-word scoring**: a mistake never stops the race, it ends when the last word is typed. A wrong word is shown in orange (the whole word, so a wrong vowel sign can never hide), it is left out of your speed (WPM) and it lowers your accuracy (right words / all words). After the race, "Words to practice" shows what the text said and what you typed
 - **Bangla-safe typing**: text is Unicode-normalized, invisible zero-width characters are ignored, and keyboard differences (Bangla vs ASCII digits, `।` vs `.`) all count as correct, so the race always finishes when you finish typing
 - **Always logged in**: you stay logged in on every device until you press Logout
 - **Result box for room races** (inspired by typing-race sites): the moment you finish, a result box opens with your rank, WPM, accuracy, consistency and time, while you keep watching the other climbers and a live standings table. You can leave the room whenever you like, and the host can start a rematch when everyone is done
@@ -79,6 +82,7 @@ mountain-typing-race/
 │   ├── css/style.css
 │   └── js/
 │       ├── app.js
+│       ├── scoring.js # Word-by-word scoring, shared by the browser and the server
 │       └── hiker.js   # The climber: human figure, four-limb climbing, avatar options
 └── README.md
 ```
