@@ -148,6 +148,23 @@ async function findUserById(id) {
   return r.rows[0] || null;
 }
 
+async function findUserByUsername(username) {
+  const r = await pool.query(
+    'SELECT id, username, created_at, avatar FROM users WHERE LOWER(username) = LOWER($1)',
+    [username]
+  );
+  return r.rows[0] || null;
+}
+
+// Permanently deletes the account (after checking the password). Scores go with it (ON DELETE CASCADE).
+async function deleteUser(userId, password) {
+  const r = await pool.query('SELECT password_hash FROM users WHERE id = $1', [userId]);
+  if (!r.rows[0]) throw new Error('Account not found');
+  const ok = await bcrypt.compare(password || '', r.rows[0].password_hash);
+  if (!ok) throw new Error('Wrong password');
+  await pool.query('DELETE FROM users WHERE id = $1', [userId]);
+}
+
 async function getAvatar(userId) {
   const r = await pool.query('SELECT avatar FROM users WHERE id = $1', [userId]);
   return (r.rows[0] && r.rows[0].avatar) || null;
@@ -167,6 +184,8 @@ module.exports = {
   getLeaderboard,
   getUserStats,
   findUserById,
+  findUserByUsername,
+  deleteUser,
   getAvatar,
   setAvatar
 };
