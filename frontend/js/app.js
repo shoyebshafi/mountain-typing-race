@@ -339,6 +339,17 @@ function connectSocket() {
     else if (!$('#racePanel').classList.contains('hidden')) renderRacePanel();
   });
 
+  // places can change whenever someone finishes (the highest WPM is first)
+  socket.on('ranks_update', ({ ranks }) => {
+    if (state.mode !== 'race') return;
+    ranks.forEach((r) => {
+      const row = state.standings[r.socketId];
+      if (row) row.rank = r.rank;
+      updateClimber(r.socketId, undefined, { finished: true, rank: r.rank });
+    });
+    if (!$('#racePanel').classList.contains('hidden')) renderRacePanel();
+  });
+
   socket.on('race_finished', ({ results, room }) => {
     state.room = room;
     state.raceOver = true;
@@ -1202,9 +1213,9 @@ function renderRacePanel() {
   const me = state.standings[mySid];
 
   if (me && me.finished) {
-    $('#rpEyebrow').textContent = 'You finished';
+    $('#rpEyebrow').textContent = state.raceOver ? 'Final result' : 'You finished';
     $('#rpTitle').textContent = me.rank
-      ? `${medals[me.rank - 1] || '🏁'} ${ordinal(me.rank)} place${total > 1 ? ' of ' + total : ''}`
+      ? `${medals[me.rank - 1] || '🏁'} ${state.raceOver ? '' : 'Now '}${ordinal(me.rank)} place${total > 1 ? ' of ' + total : ''}`
       : '🏁 Finished!';
   } else {
     $('#rpEyebrow').textContent = 'Race over';
@@ -1216,7 +1227,7 @@ function renderRacePanel() {
   $('#rpTime').textContent = me && me.time ? me.time + 's' : '—';
 
   const badge = $('#rpState');
-  badge.textContent = state.raceOver ? 'Race complete' : 'Others are still racing...';
+  badge.textContent = state.raceOver ? 'Race complete' : 'Others are still racing. Places go by WPM, so they can still change.';
   badge.classList.toggle('over', state.raceOver);
 
   const order = (r) => (r.finished ? r.rank || 500 : r.left || r.dnf ? 3000 - r.progress : 1000 - r.progress);
