@@ -183,8 +183,8 @@
 
       <section class="panel avatar-panel" id="avatarPanel">
         <div class="av-head">
-          <h3><span class="ico green">🧗</span> Your Climber</h3>
-          <p class="hint">Choose how you look on the mountain. Everyone in your race sees your climber.</p>
+          <h3><span class="ico green">🧗</span> <span id="avTitle">Your Climber</span></h3>
+          <p class="hint av-hint">Choose how you look on the mountain. Everyone in your race sees your climber.</p>
         </div>
         <div class="av-layout">
           <div class="av-stage" id="avStage">
@@ -211,6 +211,21 @@
         <h3>Recent games</h3>
         <div id="profileRecent" class="table-wrap"></div>
       </div>
+
+      <section class="panel danger-panel hidden" id="dangerPanel">
+        <h3><span class="ico red">⚠️</span> Delete account</h3>
+        <p class="hint">This permanently deletes your account, your climber and all your scores and history. It cannot be undone.</p>
+        <button id="delStartBtn" class="btn danger-btn">Delete my account</button>
+        <div id="delForm" class="del-form hidden">
+          <label class="field-label" for="delPass">Enter your password to confirm</label>
+          <input type="password" id="delPass" autocomplete="current-password" placeholder="Password" />
+          <div class="del-actions">
+            <button id="delCancelBtn" class="btn">Cancel</button>
+            <button id="delConfirmBtn" class="btn danger-btn solid">Delete forever</button>
+          </div>
+        </div>
+        <p class="error" id="delMsg"></p>
+      </section>
     </div>
 
     <!-- ROOM (Waiting) -->
@@ -420,6 +435,7 @@
           <textarea id="typeInput" class="type-capture" aria-label="Type the text shown above" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" disabled></textarea>
           <div class="quote-overlay" id="quoteOverlay">Get ready...</div>
         </div>
+        <p id="typeHint" class="type-hint hidden">Last word! Press Space (or Enter) when you are done.</p>
         <p id="finishMsg" class="finish-msg hidden">🎉 You reached the summit! Waiting for the others...</p>
       </div>
 
@@ -443,6 +459,8 @@
         <h4 class="rp-sub">Live standings</h4>
         <div id="rpStandings" class="standings"></div>
 
+        <div id="rpMistakes"></div>
+
         <div class="rp-actions">
           <button id="rpRematchBtn" class="btn primary hidden">🔁 Race Again</button>
           <p id="rpWait" class="muted hidden">Waiting for the host to start a rematch...</p>
@@ -456,6 +474,7 @@
       <div class="result-card">
         <h2 id="resultTitle">Race Complete</h2>
         <div id="resultList"></div>
+        <div id="resultMistakes" class="result-mistakes"></div>
         <button id="rematchBtn" class="btn primary full hidden">🔁 Race Again (Rematch)</button>
         <p id="waitHostMsg" class="waiting-msg hidden">Waiting for the host to start a rematch...</p>
         <button id="practiceAgainBtn" class="btn primary full hidden">🔁 Practice Again</button>
@@ -465,6 +484,7 @@
   </div>
 
   <script src="js/hiker.js"></script>
+  <script src="js/scoring.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
