@@ -17,9 +17,12 @@ const {
   getUserStats,
   findUserById,
   getAvatar,
-  setAvatar
+  setAvatar,
+  findUserByUsername,
+  deleteUser
 } = require('./db');
 const { sanitizeAvatar } = require('./avatar');
+const Scoring = require('../frontend/js/scoring.js'); // one scoring code for the browser and the server
 const { buildText, detectLanguage } = require('./texts');
 
 // The signing secret is kept in the database (or in the JWT_SECRET env var), so logins survive every restart.
@@ -49,54 +52,27 @@ const norm = (s) => String(s || '').normalize('NFC').replace(/[\u200B-\u200D\uFE
 const cleanText = (s) => norm(s).replace(/\s+/g, ' ').trim();
 const toChars = (s) => Array.from(norm(s));
 
-// Characters that different keyboards type differently count as the same:
-// Bangla digits and ASCII digits, the danda and the full stop, curly and straight quotes.
-const BN_DIGITS = '\u09E6\u09E7\u09E8\u09E9\u09EA\u09EB\u09EC\u09ED\u09EE\u09EF';
-const ALIASES = { '\u0964': '.', '\u2019': "'", '\u2018': "'", '\u201C': '"', '\u201D': '"', '\u2013': '-', '\u2014': '-' };
-function charKey(ch) {
-  const d = BN_DIGITS.indexOf(ch);
-  if (d >= 0) return String(d);
-  return ALIASES[ch] || ch;
-}
-const sameChar = (a, b) => a === b || charKey(a) === charKey(b);
-
-function correctPrefix(typedArr, textArr) {
-  const n = Math.min(typedArr.length, textArr.length);
-  let i = 0;
-  while (i < n && sameChar(typedArr[i], textArr[i])) i++;
-  return i;
-}
-
-// All stats are computed on the server from the typed text, so clients cannot fake them.
-function calcStats(textArr, typed, maxLen, mistakes, startedAt, now) {
-  const typedArr = toChars(typed);
-  const prefix = correctPrefix(typedArr, textArr);
-  const finished = prefix === textArr.length;
+// All scoring is done here on the server from the typed text, so nobody can fake a result.
+// The rules (word by word, mistakes never stop the race, wrong words are left out of the speed)
+// live in frontend/js/scoring.js and are shared with the browser.
+function calcStats(prep, typed, startedAt, now) {
+  const ev = Scoring.evaluate(prep, typed, {});
   const minutes = Math.max((now - startedAt) / 60000, 1 / 60);
-  const wpm = Math.min(400, Math.round(prefix / 5 / minutes));
-  const mx = Math.max(Number(maxLen) || 0, typedArr.length);
-  const m = Math.min(Math.max(Number(mistakes) || 0, 0), mx);
-  const accuracy = mx > 0 ? Math.round(((mx - m) / mx) * 100) : 100;
   return {
-    prefix,
-    finished,
-    wpm,
-    accuracy,
-    progress: (prefix / textArr.length) * 100
+    finished: ev.finished,
+    wpm: Math.min(400, Math.round(ev.wpmChars / 5 / minutes)),
+    accuracy: ev.accuracy,
+    progress: (ev.cursor / prep.length) * 100
   };
 }
 
-// Timed tests: every correct character in the right position counts, mistakes do not stop you.
-function calcTimedStats(textArr, typed, maxLen, mistakes, durationSec) {
-  const typedArr = toChars(typed);
-  const n = Math.min(typedArr.length, textArr.length);
-  let correct = 0;
-  for (let i = 0; i < n; i++) if (sameChar(typedArr[i], textArr[i])) correct++;
-  const wpm = Math.min(400, Math.round(correct / 5 / (durationSec / 60)));
-  const mx = Math.max(Number(maxLen) || 0, typedArr.length);
-  const m = Math.min(Math.max(Number(mistakes) || 0, 0), mx);
-  const accuracy = mx > 0 ? Math.round(((mx - m) / mx) * 100) : 100;
-  return { wpm, accuracy };
+// Timed tests: the clock ends the test, not the text.
+function calcTimedStats(prep, typed, durationSec) {
+  const ev = Scoring.evaluate(prep, typed, { timed: true, timedEnd: true });
+  return {
+    wpm: Math.min(400, Math.round(ev.wpmChars / 5 / (durationSec / 60))),
+    accuracy: ev.accuracy
+  };
 }
 
 // ========== In-memory rooms ==========
@@ -187,6 +163,30 @@ app.get('/api/me', authMiddleware, async (req, res) => {
   }
 });
 
+// Anyone who is logged in can look at another player's profile (stats and climber only).
+app.get('/api/users/:username', authMiddleware, async (req, res) => {
+  try {
+    const user = await findUserByUsername(String(req.params.username || '').slice(0, 40));
+    if (!user) return res.status(404).json({ error: 'Player not found' });
+    res.json({ user: { id: user.id, username: user.username, avatar: user.avatar, created_at: user.created_at }, stats: await getUserStats(user.id) });
+  } catch (err) {
+    console.error('/api/users error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Delete my own account for good (needs the password). Scores are deleted with it.
+app.delete('/api/me', authMiddleware, async (req, res) => {
+  try {
+    await deleteUser(req.user.id, (req.body && req.body.password) || '');
+    res.json({ ok: true });
+  } catch (err) {
+    const known = ['Wrong password', 'Account not found'];
+    if (!known.includes(err.message)) console.error('delete account error:', err.message);
+    res.status(known.includes(err.message) ? 400 : 500).json({ error: known.includes(err.message) ? err.message : 'Server error' });
+  }
+});
+
 app.put('/api/avatar', authMiddleware, async (req, res) => {
   const avatar = sanitizeAvatar(req.body && req.body.avatar);
   if (!avatar) return res.status(400).json({ error: 'Invalid avatar' });
@@ -251,7 +251,7 @@ io.on('connection', (socket) => {
       text,
       customText: !!text,
       lastText: null,
-      textArr: null,
+      prep: null,
       maxPlayers: MAX_PLAYERS,
       startedAt: null,
       timeLimit: 0,
@@ -317,8 +317,8 @@ io.on('connection', (socket) => {
       room.language = language === 'bn' ? 'bn' : 'en';
       room.text = cleanText(buildText(room.language, topic, words));
     }
-    room.textArr = toChars(room.text);
-    room.timeLimit = Math.min(900, Math.max(60, Math.ceil(room.textArr.length / 1.5)));
+    room.prep = Scoring.prepare(room.text);
+    room.timeLimit = Math.min(900, Math.max(60, Math.ceil(room.prep.length / 1.5)));
     room.results = [];
     resetPlayers(room);
     room.status = 'countdown';
@@ -327,7 +327,7 @@ io.on('connection', (socket) => {
     runCountdown(room);
   });
 
-  socket.on('progress', ({ typed, maxLen, mistakes } = {}) => {
+  socket.on('progress', ({ typed } = {}) => {
     const room = rooms[socket.roomCode];
     if (!room || room.status !== 'racing') return;
     const player = room.players[socket.id];
@@ -335,7 +335,7 @@ io.on('connection', (socket) => {
     if (typeof typed !== 'string' || typed.length > room.text.length * 2 + 10) return;
 
     const now = Date.now();
-    const s = calcStats(room.textArr, typed, maxLen, mistakes, room.startedAt, now);
+    const s = calcStats(room.prep, typed, room.startedAt, now);
     player.progress = s.progress;
     player.wpm = s.wpm;
     player.accuracy = s.accuracy;
@@ -423,7 +423,7 @@ io.on('connection', (socket) => {
 
     socket.practice = {
       text,
-      textArr: toChars(text),
+      prep: Scoring.prepare(text),
       language: textLang,
       mode: saveMode,
       duration: secs,
@@ -433,19 +433,19 @@ io.on('connection', (socket) => {
     socket.emit('practice_ready', { text, language: textLang, mode: saveMode, duration: secs });
   });
 
-  socket.on('practice_finish', ({ typed, maxLen, mistakes } = {}) => {
+  socket.on('practice_finish', ({ typed } = {}) => {
     const p = socket.practice;
     if (!p || p.done || typeof typed !== 'string') return;
-    if (typed.length > p.textArr.length * 2 + 10) return;
+    if (typed.length > p.prep.length * 2 + 10) return;
     const now = Date.now();
 
     let wpm, accuracy, timeSec;
     if (p.mode === 'timed') {
       if (now < p.startedAt + p.duration * 1000 - 2000) return; // the clock has not run out yet
-      ({ wpm, accuracy } = calcTimedStats(p.textArr, typed, maxLen, mistakes, p.duration));
+      ({ wpm, accuracy } = calcTimedStats(p.prep, typed, p.duration));
       timeSec = p.duration;
     } else {
-      const s = calcStats(p.textArr, typed, maxLen, mistakes, p.startedAt, now);
+      const s = calcStats(p.prep, typed, p.startedAt, now);
       if (!s.finished) return;
       ({ wpm, accuracy } = s);
       timeSec = Math.max((now - p.startedAt) / 1000, 1);
