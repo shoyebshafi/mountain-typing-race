@@ -19,6 +19,7 @@ function newRaceState(text = '') {
   return {
     text: normalized,
     textArr: Array.from(normalized),
+    prep: Scoring.prepare(normalized),
     typed: '',
     startTime: null,
     running: false,
@@ -383,6 +384,7 @@ function connectSocket() {
       'practice',
       title
     );
+    $('#resultMistakes').innerHTML = mistakesHtml();
   });
 }
 
@@ -418,7 +420,7 @@ async function loadLeaderboard() {
     el.innerHTML = data.map((row, i) => `
       <div class="lb-row ${i < 3 ? 'top' + (i + 1) : ''} ${row.username === state.user?.username ? 'me' : ''}">
         <span class="rank">${medals[i] || '#' + (i + 1)}</span>
-        <span class="name">${escapeHtml(row.username)}</span>
+        <span class="name"><button type="button" class="user-link" data-user="${escapeHtml(row.username)}">${escapeHtml(row.username)}</button></span>
         <span class="acc">${Math.round(row.accuracy)}%</span>
         <span class="wpm">${Math.round(row.wpm)} WPM</span>
       </div>
@@ -504,28 +506,49 @@ $('#practiceStartBtn').addEventListener('click', () => {
 });
 
 // ========== Profile ==========
+$('#leaderboard').addEventListener('click', (e) => {
+  const b = e.target.closest('.user-link');
+  if (b) openProfile(b.dataset.user);
+});
 $('#profileBtn').addEventListener('click', openProfile);
 $('#backFromProfileBtn').addEventListener('click', enterLobby);
 
-async function openProfile() {
-  $('#profileName').textContent = state.user.username;
+async function openProfile(target) {
+  const viewing = typeof target === 'string' ? target : state.user.username;
+  const mine = viewing.toLowerCase() === state.user.username.toLowerCase();
+  $('#profileName').textContent = mine ? state.user.username : viewing + "'s profile";
+  $('#avTitle').textContent = mine ? 'Your Climber' : viewing + "'s Climber";
+  $('#avatarPanel').classList.toggle('readonly', !mine);
+  $('#dangerPanel').classList.toggle('hidden', !mine);
+  resetDeleteForm();
   $('#profileStats').innerHTML = '<p class="hint">Loading...</p>';
   $('#profileChart').innerHTML = '';
   $('#profileRecent').innerHTML = '';
-  initAvatarEditor();
+  initAvatarEditor(mine ? undefined : null);
   showView('profile');
   try {
-    const res = await fetch('/api/me', { headers: { Authorization: 'Bearer ' + state.token } });
-    if (res.status === 401 || res.status === 404) {
+    const res = await fetch(mine ? '/api/me' : '/api/users/' + encodeURIComponent(viewing), {
+      headers: { Authorization: 'Bearer ' + state.token }
+    });
+    if (mine && (res.status === 401 || res.status === 404)) {
       logout();
       toast('Your account was not found. Please register or log in again.');
       return;
     }
+    if (!mine && res.status === 404) {
+      toast('Player not found');
+      enterLobby();
+      return;
+    }
     const data = await res.json();
-    if (data.user && data.user.avatar) {
-      state.user.avatar = data.user.avatar;
-      localStorage.setItem('mtr_user', JSON.stringify(state.user));
-      initAvatarEditor();
+    if (mine) {
+      if (data.user && data.user.avatar) {
+        state.user.avatar = data.user.avatar;
+        localStorage.setItem('mtr_user', JSON.stringify(state.user));
+        initAvatarEditor();
+      }
+    } else {
+      initAvatarEditor(data.user.avatar || null);
     }
     renderProfile(data.stats);
   } catch {
@@ -703,7 +726,7 @@ function setupRace(text, players, opts = {}) {
     lane.className = 'lane';
     lane.style.left = laneX(idx, count) / 10 + '%';
     lane.style.setProperty('--c', color);
-    lane.innerHTML = '<span class="lane-rope"></span><span class="lane-flag"></span>';
+    lane.innerHTML = '<span class="lane-rope"></span><span class="lane-anchor"></span><span class="lane-flag"></span>';
     lanes.appendChild(lane);
 
     const hiker = document.createElement('div');
@@ -828,23 +851,44 @@ function buildQuote() {
   if (r.spans[0]) r.spans[0].className = 'current';
 }
 
-// Only the characters that changed are touched, so long passages stay fast.
-function updateQuote(typedArr) {
+// Colours the text from the scoring result:
+//  green  = typed right        orange = a word that was typed wrong (the whole word, so nothing hides)
+//  red    = the word you are typing right now, as soon as it differs
+function updateQuote(ev) {
   const r = state.race;
   const n = r.spans.length;
   if (!n) return;
-  const newLen = typedArr.length;
-  const from = Math.max(0, Math.min(r.renderedLen, newLen) - 1);
-  const to = Math.min(n - 1, Math.max(r.renderedLen, newLen));
-  for (let i = from; i <= to; i++) {
-    const cls = i < newLen ? (sameChar(typedArr[i], r.textArr[i]) ? 'correct' : 'incorrect') : i === newLen ? 'current' : '';
-    if (r.spans[i].className !== cls) r.spans[i].className = cls;
+  const prep = r.prep;
+  const nWords = prep.words.length;
+  const cls = new Array(n).fill('');
+
+  for (let w = 0; w < ev.flags.length && w < nWords; w++) {
+    const c = ev.flags[w] ? 'correct' : 'wrongword';
+    const start = prep.starts[w];
+    const end = start + prep.words[w].length;
+    for (let i = start; i < end; i++) cls[i] = c;
+    if (ev.flags[w] && end < n && r.textArr[end] === ' ') cls[end] = 'correct';
   }
-  r.renderedLen = newLen;
+
+  if (ev.inProgress && !ev.finished && ev.done < nWords) {
+    const start = prep.starts[ev.done];
+    const target = prep.words[ev.done];
+    let bad = ev.cur.length > target.length;
+    for (let j = 0; j < ev.cur.length && j < target.length && !bad; j++) {
+      if (!Scoring.sameChar(ev.cur[j], target[j])) bad = true;
+    }
+    const shown = Math.min(ev.cur.length, target.length);
+    for (let j = 0; j < shown; j++) cls[start + j] = bad ? 'incorrect' : 'correct';
+  }
+
+  if (!ev.finished && ev.cursor < n) cls[ev.cursor] = 'current';
+  for (let i = 0; i < n; i++) {
+    if (r.spans[i].className !== cls[i]) r.spans[i].className = cls[i];
+  }
 
   // keep the active line as the second visible line
   const box = $('#quoteDisplay');
-  const cur = r.spans[Math.min(newLen, n - 1)];
+  const cur = r.spans[Math.min(ev.cursor, n - 1)];
   const cs = getComputedStyle(box);
   const lh = parseFloat(cs.lineHeight) || 40;
   const pad = parseFloat(cs.paddingTop) || 0;
@@ -973,7 +1017,7 @@ function sendProgress(force = false) {
   const emit = () => {
     r.sendTimer = null;
     r.lastSent = Date.now();
-    state.socket.emit('progress', { typed: r.typed, maxLen: r.maxLen, mistakes: r.wrong.size });
+    state.socket.emit('progress', { typed: r.typed });
   };
   const now = Date.now();
   if (force) {
@@ -992,7 +1036,15 @@ const typeInput = $('#typeInput');
 // No pasting / dropping / Enter: the race must be typed by hand.
 ['paste', 'drop', 'cut'].forEach((evt) => typeInput.addEventListener(evt, (e) => e.preventDefault()));
 typeInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') e.preventDefault();
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    // Enter works like Space, so the last word can always be finished
+    const r = state.race;
+    if (r.running && !r.finished) {
+      typeInput.value += ' ';
+      handleTyping();
+    }
+  }
 });
 
 // If the player clicks away mid-race, tell them how to continue
@@ -1008,44 +1060,25 @@ function handleTyping() {
   if (!r.running || r.finished) return;
 
   const value = normalize(typeInput.value);
-  const typedArr = Array.from(value);
   r.typed = value;
+  const ev = Scoring.evaluate(r.prep, value, { timed: r.timed });
 
-  // A mistake counts once the cursor has moved past a wrong character
-  // (so half-typed Bangla vowel signs at the cursor are never counted as errors).
-  for (let i = 0; i < typedArr.length - 1; i++) {
-    if (!sameChar(typedArr[i], r.textArr[i])) r.wrong.add(i);
-  }
-  r.maxLen = Math.max(r.maxLen, typedArr.length);
+  if (value.length > r.lastLen) (ev.lastOk ? sfx.key : sfx.error)();
+  r.lastLen = value.length;
+  r.correct = ev.correctChars;
 
-  if (typedArr.length > r.lastLen) {
-    const idx = typedArr.length - 1;
-    (sameChar(typedArr[idx], r.textArr[idx]) ? sfx.key : sfx.error)();
-  }
-  r.lastLen = typedArr.length;
-
-  // Correct characters from the start; stops at the first mistake
-  const n = Math.min(typedArr.length, r.textArr.length);
-  let prefix = 0;
-  while (prefix < n && sameChar(typedArr[prefix], r.textArr[prefix])) prefix++;
-
-  // Timed tests count every correct character, even after a mistake
-  let correct = prefix;
-  if (r.timed) {
-    correct = 0;
-    for (let i = 0; i < n; i++) if (sameChar(typedArr[i], r.textArr[i])) correct++;
-  }
-  r.correct = correct;
-
+  // Speed counts only the words that are right. Accuracy = right words / all words.
   const elapsed = (Date.now() - r.startTime) / 1000;
   const minutes = Math.max(elapsed / 60, 1 / 60);
-  const wpm = Math.min(400, Math.round(correct / 5 / minutes));
-  const accuracy = r.maxLen > 0 ? Math.round(((r.maxLen - r.wrong.size) / r.maxLen) * 100) : 100;
-  const progress = r.timed ? Math.min(100, (correct / r.goalChars) * 100) : (prefix / r.textArr.length) * 100;
+  const wpm = Math.min(400, Math.round(ev.wpmChars / 5 / minutes));
+  const accuracy = ev.accuracy;
+  const progress = r.timed
+    ? Math.min(100, (ev.wpmChars / r.goalChars) * 100)
+    : (ev.cursor / r.prep.length) * 100;
   r.liveWpm = wpm;
   r.liveAcc = accuracy;
 
-  updateQuote(typedArr);
+  updateQuote(ev);
   $('#liveWpm').textContent = wpm;
   $('#liveAcc').textContent = accuracy + '%';
   if (!r.timed) $('#liveTime').textContent = elapsed.toFixed(1) + 's';
@@ -1053,8 +1086,10 @@ function handleTyping() {
   const myWpm = document.getElementById(`wpm-${myLaneId()}`);
   if (myWpm) myWpm.textContent = wpm + ' WPM';
 
-  // the whole text has been typed correctly -> finished
-  if (!r.timed && prefix === r.textArr.length) finishTyping();
+  const onLastWord = !r.timed && ev.inProgress && !ev.finished && ev.done === r.prep.words.length - 1;
+  $('#typeHint').classList.toggle('hidden', !onLastWord);
+
+  if (ev.finished) finishTyping();
   else sendProgress(false);
 }
 
@@ -1083,6 +1118,7 @@ function finishTyping() {
   clearInterval(r.sampleTimer);
   typeInput.disabled = true;
   setOverlay(null);
+  $('#typeHint').classList.add('hidden');
   sfx.finish();
   r.consistency = calcConsistency(r.samples);
   const elapsed = (Date.now() - r.startTime) / 1000;
@@ -1095,7 +1131,7 @@ function finishTyping() {
     showRacePanel();
   } else if (state.mode === 'practice') {
     if (!r.timed) updateClimber('me', 100, { finished: true, rank: 1 });
-    state.socket.emit('practice_finish', { typed: r.typed, maxLen: r.maxLen, mistakes: r.wrong.size });
+    state.socket.emit('practice_finish', { typed: r.typed });
   }
 }
 
@@ -1138,6 +1174,24 @@ function showRacePanel() {
   panel.classList.remove('hidden');
   renderRacePanel();
   if (firstTime) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// "Words to practice": what the text said and what was typed, plus the hidden character codes.
+function mistakesHtml() {
+  const r = state.race;
+  if (!r.prep || !r.typed) return '';
+  const list = Scoring.wrongWords(r.prep, r.typed);
+  if (!list.length) return '<p class="mistakes-ok">🎯 No wrong words. Perfect!</p>';
+  const code = (str) => Array.from(str).map((c) => c.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')).join(' ');
+  const shown = list.slice(0, 12);
+  return `
+    <h4 class="rp-sub">Words to practice <span class="muted">(${list.length} wrong)</span></h4>
+    <div class="mistakes">
+      ${shown.map((w) => `<div class="mistake"><span class="m-exp">${escapeHtml(w.expected)}</span><span class="m-arrow">→</span><span class="m-typed">${w.typed ? escapeHtml(w.typed) : '(skipped)'}</span></div>`).join('')}
+    </div>
+    <details class="m-codes"><summary>Show character codes</summary>
+      ${shown.map((w) => `<div><b>${escapeHtml(w.expected)}</b> ${code(w.expected)}<br/><b>${escapeHtml(w.typed)}</b> ${code(w.typed)}</div>`).join('')}
+    </details>`;
 }
 
 function renderRacePanel() {
@@ -1190,6 +1244,7 @@ function renderRacePanel() {
   const host = amHost();
   $('#rpRematchBtn').classList.toggle('hidden', !(state.raceOver && host));
   $('#rpWait').classList.toggle('hidden', !(state.raceOver && !host));
+  $('#rpMistakes').innerHTML = mistakesHtml();
 }
 
 $('#rpRematchBtn').addEventListener('click', () => state.socket.emit('rematch'));
@@ -1283,8 +1338,9 @@ let avDraft = null;
 let avRaf = 0;
 let avPhase = 0.12;
 
-function initAvatarEditor() {
-  avDraft = Object.assign({}, Hiker.sanitize(state.user && state.user.avatar) || Hiker.DEFAULT_AVATAR);
+function initAvatarEditor(avatarOverride) {
+  const source = avatarOverride !== undefined ? avatarOverride : state.user && state.user.avatar;
+  avDraft = Object.assign({}, Hiker.sanitize(source) || Hiker.DEFAULT_AVATAR);
   $('#avControls').innerHTML = AV_GROUPS.map((g) => `
     <div class="av-group">
       <h4>${g.title}</h4>
@@ -1372,6 +1428,41 @@ $('#avSaveBtn').addEventListener('click', async () => {
   } catch (err) {
     msg.textContent = '';
     toast(err.message);
+  }
+});
+
+// ========== Delete my account ==========
+function resetDeleteForm() {
+  $('#delForm').classList.add('hidden');
+  $('#delStartBtn').classList.remove('hidden');
+  $('#delPass').value = '';
+  $('#delMsg').textContent = '';
+}
+$('#delStartBtn').addEventListener('click', () => {
+  $('#delForm').classList.remove('hidden');
+  $('#delStartBtn').classList.add('hidden');
+  $('#delPass').focus();
+});
+$('#delCancelBtn').addEventListener('click', resetDeleteForm);
+$('#delConfirmBtn').addEventListener('click', async () => {
+  const msg = $('#delMsg');
+  msg.textContent = '';
+  if (!$('#delPass').value) {
+    msg.textContent = 'Enter your password to confirm.';
+    return;
+  }
+  try {
+    const res = await fetch('/api/me', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + state.token },
+      body: JSON.stringify({ password: $('#delPass').value })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not delete the account');
+    logout();
+    toast('Your account was deleted.');
+  } catch (err) {
+    msg.textContent = err.message;
   }
 });
 
