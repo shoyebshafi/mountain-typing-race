@@ -320,6 +320,7 @@ io.on('connection', (socket) => {
     room.prep = Scoring.prepare(room.text);
     room.timeLimit = Math.min(900, Math.max(60, Math.ceil(room.prep.length / 1.5)));
     room.results = [];
+    room.saved = false;
     resetPlayers(room);
     room.status = 'countdown';
 
@@ -344,20 +345,19 @@ io.on('connection', (socket) => {
       player.finished = true;
       player.finishTime = now;
       player.progress = 100;
-      player.rank = room.results.length + 1;
       const timeSec = (now - room.startedAt) / 1000;
       room.results.push({
+        socketId: socket.id,
+        userId: player.id,
         username: player.username,
         wpm: player.wpm,
         accuracy: player.accuracy,
-        rank: player.rank,
+        timeSec,
         time: timeSec.toFixed(1),
+        rank: null,
         finished: true
       });
-      saveScore(
-        player.id, player.wpm, player.accuracy, timeSec, player.rank,
-        room.code, room.language, room.customText ? 'custom' : 'race'
-      ).catch((e) => console.error('Score save error:', e.message));
+      assignRanks(room); // the place goes by speed (WPM), not by who finished first
     }
 
     io.to(room.code).emit('progress_update', {
@@ -370,6 +370,12 @@ io.on('connection', (socket) => {
       rank: player.rank,
       time: player.finished ? ((player.finishTime - room.startedAt) / 1000).toFixed(1) : null
     });
+    if (s.finished) {
+      // a slower finisher can still be faster in WPM, so everyone's current place may change
+      io.to(room.code).emit('ranks_update', {
+        ranks: room.results.map((r) => ({ socketId: r.socketId, username: r.username, rank: r.rank }))
+      });
+    }
 
     if (Object.values(room.players).every((p) => p.finished)) endRace(room);
   });
@@ -505,6 +511,7 @@ function leaveRoom(socket) {
   const remaining = Object.keys(room.players);
   if (remaining.length === 0) {
     clearTimers(room);
+    if (room.status === 'racing') saveResults(room);
     delete rooms[code];
     return;
   }
@@ -525,12 +532,37 @@ function leaveRoom(socket) {
   }
 }
 
+// Places go by speed: the highest WPM is first.
+// Ties: the higher accuracy wins, then the faster finish.
+function assignRanks(room) {
+  room.results.sort((a, b) => b.wpm - a.wpm || b.accuracy - a.accuracy || a.timeSec - b.timeSec);
+  room.results.forEach((r, i) => {
+    r.rank = i + 1;
+    const p = room.players[r.socketId];
+    if (p) p.rank = r.rank;
+  });
+}
+
+// The final places are known only when the race is over, so scores are saved now (once).
+function saveResults(room) {
+  if (room.saved) return;
+  room.saved = true;
+  assignRanks(room);
+  room.results.forEach((r) => {
+    saveScore(
+      r.userId, r.wpm, r.accuracy, r.timeSec, r.rank,
+      room.code, room.language, room.customText ? 'custom' : 'race'
+    ).catch((e) => console.error('Score save error:', e.message));
+  });
+}
+
 function endRace(room) {
   if (room.status === 'finished') return;
   clearTimers(room);
   room.status = 'finished';
+  saveResults(room);
 
-  // Finished players first (already ranked), then DNF players by progress
+  // Finished players first (ranked by WPM), then players who did not finish, by progress
   const dnf = Object.values(room.players)
     .filter((p) => !p.finished)
     .sort((a, b) => b.progress - a.progress)
@@ -545,7 +577,10 @@ function endRace(room) {
     }));
 
   io.to(room.code).emit('race_finished', {
-    results: [...room.results, ...dnf],
+    results: [
+      ...room.results.map((r) => ({ username: r.username, wpm: r.wpm, accuracy: r.accuracy, rank: r.rank, time: r.time, finished: true })),
+      ...dnf
+    ],
     room: publicRoom(room)
   });
 }
