@@ -73,8 +73,8 @@
   const LEG = [19, 19];
   const SHOULDER = [10, -26]; // half-width, y  (origin = middle of the hips)
   const HIP = [6, 0];
-  const HAND_HI = [10, -61], HAND_LO = [14, -45];
-  const FOOT_HI = [11, 17], FOOT_LO = [8, 35];
+  const HAND_HI = [6, -56], HAND_LO = [7, -42]; // both hands on the rope in the middle
+  const FOOT_HI = [12, 17], FOOT_LO = [9, 35];   // feet walk up the wall
 
   // A limb cycle: first half it swings up to the next hold, second half it is planted and slides
   // back down relative to the body (because the body climbs). Returns 0 (low) .. 1 (high).
