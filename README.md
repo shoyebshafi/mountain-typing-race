@@ -13,6 +13,7 @@ A multiplayer typing race game. Log in with a username and password, create a pr
 - **Climber editor** on your profile page: skin tone, hair style and color, jacket / hoodie / T-shirt / sleeveless, shorts or long pants, shoes, headwear, backpack and any color you like. Everyone in your race sees your climber
 - **Your data is permanent**: users, scores, history, leaderboard and avatars live in a PostgreSQL database, so nothing is lost when the site redeploys or restarts
 - **Single-box typing**: you type directly on the text you read. Typed text is highlighted step by step, mistakes turn red, and long passages scroll automatically
+- **The winner has the highest WPM**, not the first one to finish. Places update live as players finish and are final when the race ends (ties: higher accuracy, then the faster finish)
 - **Rematch button**: the host can restart the room with a new text in one click
 - **Practice mode** with four options: Random Text, Custom Text, **30 second Test** and **60 second Test** (a quick typing speed test)
 - **Profile page**: best/average WPM, accuracy, wins, a WPM graph of your last 20 games and a recent games table
