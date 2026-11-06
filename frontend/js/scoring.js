@@ -144,7 +144,62 @@
     return out;
   }
 
-  const api = { norm, sameChar, sameWord, prepare, evaluate, wrongWords };
+  // ---- showing exactly WHERE a word is wrong ----
+
+  // Which target characters were typed right ('ok') or wrong ('bad')?
+  // A skipped letter or an extra letter only marks the spot where it happened, so one slip
+  // does not turn the rest of the word red. freeEnd = the word is still being typed.
+  // Returns { marks: one of 'ok' | 'bad' | '' per target character, endJ: how far into the target we are }.
+  function align(typed, target, freeEnd) {
+    const a = typed.length;
+    const b = target.length;
+    const dp = [];
+    for (let i = 0; i <= a; i++) { dp.push(new Array(b + 1).fill(0)); dp[i][0] = i; }
+    for (let j = 0; j <= b; j++) dp[0][j] = j;
+    for (let i = 1; i <= a; i++) {
+      for (let j = 1; j <= b; j++) {
+        const cost = sameChar(typed[i - 1], target[j - 1]) ? 0 : 1;
+        dp[i][j] = Math.min(dp[i - 1][j - 1] + cost, dp[i - 1][j] + 1, dp[i][j - 1] + 1);
+      }
+    }
+    let endJ = b;
+    if (freeEnd) {
+      let best = Infinity;
+      endJ = 0;
+      for (let j = 0; j <= b; j++) {
+        const d = dp[a][j];
+        if (d < best || (d === best && Math.abs(j - a) < Math.abs(endJ - a))) { best = d; endJ = j; }
+      }
+    }
+    const marks = new Array(b).fill('');
+    const blame = [];
+    let i = a;
+    let j = endJ;
+    while (i > 0 || j > 0) {
+      if (i > 0 && j > 0) {
+        const same = sameChar(typed[i - 1], target[j - 1]);
+        if (dp[i][j] === dp[i - 1][j - 1] + (same ? 0 : 1)) { marks[j - 1] = same ? 'ok' : 'bad'; i--; j--; continue; }
+      }
+      if (j > 0 && dp[i][j] === dp[i][j - 1] + 1) { marks[j - 1] = 'bad'; j--; continue; } // a letter that was skipped
+      blame.push(Math.max(0, Math.min(j - 1, b - 1)));                                      // an extra letter was typed here
+      i--;
+    }
+    if (b > 0) blame.forEach((k) => { marks[k] = 'bad'; });
+    return { marks, endJ };
+  }
+
+  // Bangla vowel signs and conjuncts are not separate "letters" to the eye: ো is drawn around its consonant.
+  // This is the whole visible unit around a character, so a wrong vowel sign shows as a clear block.
+  const isMark = (ch) => /\p{M}/u.test(ch);
+  function clusterRange(chars, idx) {
+    let s = idx;
+    while (s > 0 && (isMark(chars[s]) || chars[s - 1] === '\u09CD')) s--;
+    let e = idx + 1;
+    while (e < chars.length && (isMark(chars[e]) || chars[e - 1] === '\u09CD')) e++;
+    return [s, e];
+  }
+
+  const api = { norm, sameChar, sameWord, prepare, evaluate, wrongWords, align, clusterRange };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Scoring = api;
 })(typeof window !== 'undefined' ? window : this);
