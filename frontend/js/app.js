@@ -454,7 +454,7 @@ $('#createRoomBtn').addEventListener('click', () => {
     $('#createError').textContent = 'Custom text needs at least 20 characters.';
     return;
   }
-  state.socket.emit('create_room', { customText });
+  state.socket.emit('create_room', { customText, isPublic: $('#publicToggle').checked });
 });
 
 $('#customToggle').addEventListener('change', (e) => {
@@ -474,6 +474,15 @@ $('#joinRoomBtn').addEventListener('click', () => {
     return;
   }
   state.socket.emit('join_room', { code });
+});
+
+$('#joinRandomBtn').addEventListener('click', () => {
+  $('#joinError').textContent = '';
+  if (!state.socket || !state.socket.connected) {
+    $('#joinError').textContent = 'Not connected. Please refresh.';
+    return;
+  }
+  state.socket.emit('join_random');
 });
 
 // Practice: Random Text | Custom Text | 30 second Test | 60 second Test
@@ -655,6 +664,7 @@ function renderRecent(recent) {
 function enterRoomView(room) {
   $('#roomCodeDisplay').textContent = room.code || '------';
   $('#maxPlayersDisplay').textContent = room.maxPlayers;
+  $('#openBadge').classList.toggle('hidden', !room.isPublic);
   renderPlayers(room);
   refreshHostControls(room);
   showView('room');
@@ -862,44 +872,67 @@ function buildQuote() {
   if (r.spans[0]) r.spans[0].className = 'current';
 }
 
-// Colours the text from the scoring result:
-//  green  = typed right        orange = a word that was typed wrong (the whole word, so nothing hides)
-//  red    = the word you are typing right now, as soon as it differs
+// Colours the text from the scoring result. Three states are always easy to tell apart:
+//   gray   = still to type          blue block = the letter to type NOW          green = typed right
+//   red    = ONLY the part that is wrong (the whole visible unit, so a wrong vowel sign can not hide)
 function updateQuote(ev) {
   const r = state.race;
   const n = r.spans.length;
   if (!n) return;
   const prep = r.prep;
   const nWords = prep.words.length;
+  const chars = prep.chars;
   const cls = new Array(n).fill('');
+  const cache = r.alignCache || (r.alignCache = {});
 
-  for (let w = 0; w < ev.flags.length && w < nWords; w++) {
-    const c = ev.flags[w] ? 'correct' : 'wrongword';
+  // marks: 'ok' | 'bad' | '' for each character of word w
+  const paint = (w, marks) => {
     const start = prep.starts[w];
     const end = start + prep.words[w].length;
-    for (let i = start; i < end; i++) cls[i] = c;
-    if (ev.flags[w] && end < n && r.textArr[end] === ' ') cls[end] = 'correct';
-  }
+    marks.forEach((m, j) => { if (m === 'ok') cls[start + j] = 'correct'; });
+    marks.forEach((m, j) => {
+      if (m !== 'bad') return;
+      const [cs, ce] = Scoring.clusterRange(chars, start + j);
+      for (let i = Math.max(cs, start); i < Math.min(ce, end); i++) cls[i] = 'incorrect';
+    });
+  };
 
-  if (ev.inProgress && !ev.finished && ev.done < nWords) {
-    const start = prep.starts[ev.done];
-    const target = prep.words[ev.done];
-    let bad = ev.cur.length > target.length;
-    for (let j = 0; j < ev.cur.length && j < target.length && !bad; j++) {
-      if (!Scoring.sameChar(ev.cur[j], target[j])) bad = true;
+  // words that are completely typed
+  for (let w = 0; w < ev.flags.length && w < nWords; w++) {
+    const start = prep.starts[w];
+    const len = prep.words[w].length;
+    if (ev.flags[w]) {
+      for (let i = start; i < start + len; i++) cls[i] = 'correct';
+    } else {
+      const typed = ev.typedWords[w] || [];
+      const key = w + ':' + typed.join('');
+      const al = cache[key] || (cache[key] = Scoring.align(typed, prep.words[w], false));
+      paint(w, al.marks);
     }
-    const shown = Math.min(ev.cur.length, target.length);
-    for (let j = 0; j < shown; j++) cls[start + j] = bad ? 'incorrect' : 'correct';
+    if (start + len < n && chars[start + len] === ' ') cls[start + len] = 'correct';
   }
 
-  if (!ev.finished && ev.cursor < n) cls[ev.cursor] = 'current';
+  // the word being typed right now
+  let cursor = ev.finished || ev.done >= nWords ? n : prep.starts[ev.done];
+  if (ev.inProgress && !ev.finished && ev.done < nWords) {
+    const al = Scoring.align(ev.cur, prep.words[ev.done], true);
+    paint(ev.done, al.marks);
+    cursor = prep.starts[ev.done] + al.endJ;
+  }
+
+  // the letter to type next: a solid block over its whole visible unit
+  if (!ev.finished && cursor < n) {
+    const end = Scoring.clusterRange(chars, cursor)[1];
+    for (let i = cursor; i < Math.min(end, n); i++) if (!cls[i]) cls[i] = 'current';
+  }
+
   for (let i = 0; i < n; i++) {
     if (r.spans[i].className !== cls[i]) r.spans[i].className = cls[i];
   }
 
   // keep the active line as the second visible line
   const box = $('#quoteDisplay');
-  const cur = r.spans[Math.min(ev.cursor, n - 1)];
+  const cur = r.spans[Math.min(cursor, n - 1)];
   const cs = getComputedStyle(box);
   const lh = parseFloat(cs.lineHeight) || 40;
   const pad = parseFloat(cs.paddingTop) || 0;
