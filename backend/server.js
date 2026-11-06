@@ -235,7 +235,7 @@ io.on('connection', (socket) => {
   console.log(`User connected: ${socket.user.username} (${socket.id})`);
 
   // ---------- Rooms ----------
-  socket.on('create_room', ({ customText } = {}) => {
+  socket.on('create_room', ({ customText, isPublic } = {}) => {
     if (socket.roomCode) leaveRoom(socket);
 
     const code = generateRoomCode();
@@ -253,6 +253,8 @@ io.on('connection', (socket) => {
       lastText: null,
       prep: null,
       maxPlayers: MAX_PLAYERS,
+      isPublic: !!isPublic, // open room: anyone can join with "Join Random Room"
+      createdAt: Date.now(),
       startedAt: null,
       timeLimit: 0,
       language: text ? detectLanguage(text) : 'en',
@@ -269,26 +271,24 @@ io.on('connection', (socket) => {
     console.log(`Room created: ${code} by ${socket.user.username}`);
   });
 
-  socket.on('join_room', ({ code } = {}) => {
-    const roomCode = String(code || '').trim().toUpperCase();
-    const room = rooms[roomCode];
-    if (!room) return socket.emit('error_msg', { message: 'Room not found' });
-    if (room.status !== 'waiting') return socket.emit('error_msg', { message: 'This room is currently racing. Try again soon.' });
-    if (Object.keys(room.players).length >= room.maxPlayers) {
-      return socket.emit('error_msg', { message: 'Room is full' });
+  socket.on('join_room', ({ code } = {}) => joinRoom(socket, String(code || '').trim().toUpperCase()));
+
+  // "Join Random Room": go into any open room that is waiting for players.
+  // The fullest room is chosen first, so players end up together instead of spread out.
+  socket.on('join_random', () => {
+    const open = Object.values(rooms).filter((r) =>
+      r.isPublic &&
+      r.status === 'waiting' &&
+      Object.keys(r.players).length < r.maxPlayers &&
+      !Object.values(r.players).some((p) => p.username === socket.user.username)
+    );
+    if (!open.length) {
+      return socket.emit('error_msg', {
+        message: 'No open room right now. Create one with "Join anyone without Code" turned on, or try again in a moment.'
+      });
     }
-    if (Object.values(room.players).some((p) => p.username === socket.user.username)) {
-      return socket.emit('error_msg', { message: 'You are already in this room' });
-    }
-
-    if (socket.roomCode) leaveRoom(socket);
-
-    room.players[socket.id] = newPlayer(socket.user, socket.avatar);
-    socket.join(roomCode);
-    socket.roomCode = roomCode;
-
-    io.to(roomCode).emit('player_joined', { room: publicRoom(room) });
-    socket.emit('joined_room', { room: publicRoom(room) });
+    open.sort((a, b) => Object.keys(b.players).length - Object.keys(a.players).length || a.createdAt - b.createdAt);
+    joinRoom(socket, open[0].code);
   });
 
   socket.on('set_text', ({ text } = {}) => {
@@ -496,6 +496,27 @@ function runCountdown(room) {
   }, 1000);
 }
 
+function joinRoom(socket, roomCode) {
+  const room = rooms[roomCode];
+  if (!room) return socket.emit('error_msg', { message: 'Room not found' });
+  if (room.status !== 'waiting') return socket.emit('error_msg', { message: 'This room is currently racing. Try again soon.' });
+  if (Object.keys(room.players).length >= room.maxPlayers) {
+    return socket.emit('error_msg', { message: 'Room is full' });
+  }
+  if (Object.values(room.players).some((p) => p.username === socket.user.username)) {
+    return socket.emit('error_msg', { message: 'You are already in this room' });
+  }
+
+  if (socket.roomCode) leaveRoom(socket);
+
+  room.players[socket.id] = newPlayer(socket.user, socket.avatar);
+  socket.join(roomCode);
+  socket.roomCode = roomCode;
+
+  io.to(roomCode).emit('player_joined', { room: publicRoom(room) });
+  socket.emit('joined_room', { room: publicRoom(room) });
+}
+
 function leaveRoom(socket) {
   const code = socket.roomCode;
   if (!code || !rooms[code]) {
@@ -592,6 +613,7 @@ function publicRoom(room) {
     status: room.status,
     maxPlayers: room.maxPlayers,
     customText: room.customText,
+    isPublic: !!room.isPublic,
     language: room.language,
     playerCount: Object.keys(room.players).length,
     players: Object.entries(room.players).map(([sid, p]) => ({
