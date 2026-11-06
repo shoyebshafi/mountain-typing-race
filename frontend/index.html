@@ -110,6 +110,10 @@
             <span class="switch"><input type="checkbox" id="customToggle" /><span class="slider"></span></span>
           </label>
           <textarea id="customTextInput" class="hidden" placeholder="Paste your race text here (min 20 characters)..." rows="4"></textarea>
+          <label class="switch-row" for="publicToggle">
+            <span>Join anyone without Code</span>
+            <span class="switch"><input type="checkbox" id="publicToggle" /><span class="slider"></span></span>
+          </label>
           <button id="createRoomBtn" class="btn primary full" style="margin-top:14px">Create Room</button>
           <p class="error" id="createError"></p>
         </div>
@@ -119,6 +123,8 @@
           <p class="hint">Enter the Room Code</p>
           <input type="text" id="joinCode" class="code-input" placeholder="A3K9P2" maxlength="6" />
           <button id="joinRoomBtn" class="btn primary full" style="margin-top:14px">Join Room</button>
+          <div class="or-divider"><span>or</span></div>
+          <button id="joinRandomBtn" class="btn full">🎲 Join Random Room</button>
           <p class="error" id="joinError"></p>
         </div>
 
@@ -241,6 +247,7 @@
       <div class="room-layout">
         <div class="panel room-code-panel">
           <p class="label">Room Code</p>
+          <span id="openBadge" class="open-badge hidden">🌐 Open room · anyone can join</span>
           <div class="code-box">
             <span id="roomCodeDisplay" class="room-code">------</span>
             <button id="copyCodeBtn" class="btn small" title="Copy code">Copy</button>
