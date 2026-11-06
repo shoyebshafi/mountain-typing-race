@@ -596,26 +596,27 @@ table.recent td.wpm { color: var(--primary); font-weight: 700; }
   height: calc(var(--fs) * var(--lh) * 4 + 40px);
   overflow: hidden;
   scroll-behavior: smooth;
-  color: #6d7b97;
+  color: #8b9ab8;
   letter-spacing: 0.01em;
   word-wrap: break-word;
   user-select: none;
   -webkit-user-select: none;
 }
 /* typed text gets "selected" step by step, like a highlighter moving forward */
-.quote-display .correct { color: #f0fff7; background: rgba(52, 211, 153, 0.22); }
-.quote-display .incorrect { color: #fecaca; background: rgba(248, 113, 113, 0.42); border-radius: 3px; }
-.quote-display .current { position: relative; color: #fff; background: rgba(56, 189, 248, 0.14); }
-.quote-display .current::before {
-  content: '';
-  position: absolute;
-  left: -1px; top: 14%; bottom: 14%;
-  width: 2px;
-  border-radius: 2px;
-  background: var(--accent);
-  animation: blink 1s steps(2, start) infinite;
+/* gray = still to type, blue block = type this NOW, green = typed right, red = only the wrong part */
+.quote-display .correct { color: #4ade80; background: rgba(74, 222, 128, 0.1); }
+.quote-display .incorrect {
+  color: #fff;
+  background: rgba(239, 68, 68, 0.62);
+  border-radius: 3px;
 }
-@keyframes blink { to { visibility: hidden; } }
+.quote-display .current {
+  color: #04121f;
+  background: #38bdf8;
+  border-radius: 3px;
+  animation: pulse-block 1.1s ease-in-out infinite;
+}
+@keyframes pulse-block { 50% { background: #7dd3fc; } }
 
 /* invisible input that sits exactly on top of the text */
 .type-capture {
@@ -985,3 +986,21 @@ table.recent td.wpm { color: var(--primary); font-weight: 700; }
 }
 .av-wall { position: relative; }
 .av-preview { position: relative; z-index: 1; }
+
+
+/* ===================== open rooms ===================== */
+.or-divider { display: flex; align-items: center; gap: 12px; margin: 14px 0; color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.1em; }
+.or-divider::before, .or-divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.open-badge {
+  display: inline-block;
+  margin-bottom: 10px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #bae6fd;
+  background: rgba(56, 189, 248, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+}
