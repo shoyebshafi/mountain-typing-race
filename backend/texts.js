@@ -32,7 +32,7 @@ const PASSAGES = {
   ]
 };
 
-const TOPIC_NAMES = ['general', 'biology', 'chemistry', 'physics', 'history'];
+const TOPIC_NAMES = ['general', 'biology', 'chemistry', 'physics', 'history', 'geography', 'technology'];
 const WORD_COUNTS = [20, 30, 40, 60];
 
 const rand = (n) => Math.floor(Math.random() * n);
