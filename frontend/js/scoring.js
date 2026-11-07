@@ -147,45 +147,41 @@
   // ---- showing exactly WHERE a word is wrong ----
 
   // Which target characters were typed right ('ok') or wrong ('bad')?
-  // A skipped letter or an extra letter only marks the spot where it happened, so one slip
-  // does not turn the rest of the word red. freeEnd = the word is still being typed.
-  // Returns { marks: one of 'ok' | 'bad' | '' per target character, endJ: how far into the target we are }.
-  function align(typed, target, freeEnd) {
-    const a = typed.length;
-    const b = target.length;
-    const dp = [];
-    for (let i = 0; i <= a; i++) { dp.push(new Array(b + 1).fill(0)); dp[i][0] = i; }
-    for (let j = 0; j <= b; j++) dp[0][j] = j;
-    for (let i = 1; i <= a; i++) {
-      for (let j = 1; j <= b; j++) {
-        const cost = sameChar(typed[i - 1], target[j - 1]) ? 0 : 1;
-        dp[i][j] = Math.min(dp[i - 1][j - 1] + cost, dp[i - 1][j] + 1, dp[i][j - 1] + 1);
+  //
+  // The typed word is read from left to right and every mistake is pinned to the letter the
+  // typist was supposed to type at that moment. A decision is never taken back when more letters
+  // arrive, so a red mark stays exactly where the mistake happened (it never jumps around).
+  //   - a different letter      -> that target letter is red
+  //   - an extra letter         -> the letter it pushed aside is red
+  //   - a skipped letter        -> the skipped letter is red
+  //   - two letters swapped     -> both are red
+  // Returns { marks: 'ok' | 'bad' | '' for every target character, endJ: where the typist is now }.
+  function align(typed, target) {
+    const n = typed.length;
+    const m = target.length;
+    const marks = new Array(m).fill('');
+    let i = 0;
+    let j = 0;
+    while (i < n) {
+      if (j >= m) {                         // more letters than the word has
+        if (m > 0) marks[m - 1] = 'bad';
+        i++;
+        continue;
       }
-    }
-    let endJ = b;
-    if (freeEnd) {
-      let best = Infinity;
-      endJ = 0;
-      for (let j = 0; j <= b; j++) {
-        const d = dp[a][j];
-        if (d < best || (d === best && Math.abs(j - a) < Math.abs(endJ - a))) { best = d; endJ = j; }
+      if (sameChar(typed[i], target[j])) { marks[j] = 'ok'; i++; j++; continue; }
+      // a mismatch at the letter that was expected
+      if (i + 1 < n && j + 1 < m && sameChar(typed[i], target[j + 1]) && sameChar(typed[i + 1], target[j])) {
+        marks[j] = 'bad'; marks[j + 1] = 'bad'; i += 2; j += 2; continue;   // swapped
       }
-    }
-    const marks = new Array(b).fill('');
-    const blame = [];
-    let i = a;
-    let j = endJ;
-    while (i > 0 || j > 0) {
-      if (i > 0 && j > 0) {
-        const same = sameChar(typed[i - 1], target[j - 1]);
-        if (dp[i][j] === dp[i - 1][j - 1] + (same ? 0 : 1)) { marks[j - 1] = same ? 'ok' : 'bad'; i--; j--; continue; }
+      if (i + 1 < n && sameChar(typed[i + 1], target[j])) {
+        marks[j] = 'bad'; i += 2; j++; continue;                            // an extra letter came first
       }
-      if (j > 0 && dp[i][j] === dp[i][j - 1] + 1) { marks[j - 1] = 'bad'; j--; continue; } // a letter that was skipped
-      blame.push(Math.max(0, Math.min(j - 1, b - 1)));                                      // an extra letter was typed here
-      i--;
+      if (j + 1 < m && sameChar(typed[i], target[j + 1])) {
+        marks[j] = 'bad'; marks[j + 1] = 'ok'; i++; j += 2; continue;       // the expected letter was skipped
+      }
+      marks[j] = 'bad'; i++; j++;                                           // a different letter
     }
-    if (b > 0) blame.forEach((k) => { marks[k] = 'bad'; });
-    return { marks, endJ };
+    return { marks, endJ: j };
   }
 
   // Bangla vowel signs and conjuncts are not separate "letters" to the eye: ো is drawn around its consonant.
