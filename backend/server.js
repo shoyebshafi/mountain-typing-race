@@ -23,7 +23,7 @@ const {
 } = require('./db');
 const { sanitizeAvatar } = require('./avatar');
 const Scoring = require('../frontend/js/scoring.js'); // one scoring code for the browser and the server
-const { buildText, detectLanguage } = require('./texts');
+const { buildTextParts, detectLanguage } = require('./texts');
 
 // The signing secret is kept in the database (or in the JWT_SECRET env var), so logins survive every restart.
 let JWT_SECRET = process.env.JWT_SECRET || null;
@@ -73,6 +73,16 @@ function calcTimedStats(prep, typed, durationSec) {
     wpm: Math.min(400, Math.round(ev.wpmChars / 5 / (durationSec / 60))),
     accuracy: ev.accuracy
   };
+}
+
+// Builds a fresh text that avoids what this room / player had recently, so texts do not repeat.
+function freshText(memories, lang, topic, words) {
+  const built = buildTextParts(lang, topic, words, new Set(memories.flat()));
+  memories.forEach((m) => {
+    m.push(...built.parts);
+    while (m.length > 200) m.shift();
+  });
+  return cleanText(built.text);
 }
 
 // ========== In-memory rooms ==========
@@ -255,6 +265,7 @@ io.on('connection', (socket) => {
       maxPlayers: MAX_PLAYERS,
       isPublic: !!isPublic, // open room: anyone can join with "Join Random Room"
       createdAt: Date.now(),
+      recent: [],
       startedAt: null,
       timeLimit: 0,
       language: text ? detectLanguage(text) : 'en',
@@ -315,7 +326,7 @@ io.on('connection', (socket) => {
       room.language = detectLanguage(room.text);
     } else {
       room.language = language === 'bn' ? 'bn' : 'en';
-      room.text = cleanText(buildText(room.language, topic, words));
+      room.text = freshText([room.recent, (socket.recent = socket.recent || [])], room.language, topic, words);
     }
     room.prep = Scoring.prepare(room.text);
     room.timeLimit = Math.min(900, Math.max(60, Math.ceil(room.prep.length / 1.5)));
@@ -420,10 +431,10 @@ io.on('connection', (socket) => {
     } else if (mode === 'timed') {
       secs = Number(duration) === 60 ? 60 : 30;
       // plenty of text so nobody can run out before the clock does
-      text = cleanText(buildText(lang, topic, secs === 60 ? 260 : 140));
+      text = freshText([(socket.recent = socket.recent || [])], lang, topic, secs === 60 ? 260 : 140);
       saveMode = 'timed';
     } else {
-      text = cleanText(buildText(lang, topic, words));
+      text = freshText([(socket.recent = socket.recent || [])], lang, topic, words);
       saveMode = 'practice';
     }
 
