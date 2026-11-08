@@ -7,7 +7,15 @@
 // Every race / test builds a fresh text of about 20, 30, 40 or 60 words (chosen at random)
 // from one topic, so players get a different text almost every time.
 // To grow the storage, add more sentences to topics.js or more passages below.
-const { TOPICS } = require('./topics');
+// All the topic sentences: the first list plus the extra lists, merged (and de-duplicated)
+const BASE = require('./topics').TOPICS;
+const EXTRA = { bn: require('./topics_extra_bn'), en: require('./topics_extra_en') };
+const TOPICS = { bn: {}, en: {} };
+for (const lang of ['bn', 'en']) {
+  for (const name of new Set([...Object.keys(BASE[lang]), ...Object.keys(EXTRA[lang])])) {
+    TOPICS[lang][name] = [...new Set([...(BASE[lang][name] || []), ...(EXTRA[lang][name] || [])])];
+  }
+}
 
 const PASSAGES = {
   bn: [
@@ -60,28 +68,37 @@ const PASSAGE_SENTENCES = {
 
 // Build a fresh text.
 //   lang:      'bn' | 'en'
-//   topic:     'mix' (random topic) | 'general' | 'biology' | 'chemistry' | 'physics' | 'history'
+//   topic:     'mix' (random topic) | 'general' | any topic name
 //   wordCount: a number (10-400), or anything else for a random 20 / 30 / 40 / 60
-function buildText(lang = 'en', topic = 'mix', wordCount) {
+//   avoid:     a Set of sentences used recently. They are skipped, so the same text does not come back
+//              again and again. (If a topic is nearly used up, the oldest ones may come back.)
+// Returns { text, parts } where parts are the sentences used.
+function buildTextParts(lang = 'en', topic = 'mix', wordCount, avoid) {
   lang = lang === 'bn' ? 'bn' : 'en';
+  const skip = avoid instanceof Set ? avoid : new Set();
   const n = parseInt(wordCount, 10);
   const target = n >= 10 && n <= 400 ? n : WORD_COUNTS[rand(WORD_COUNTS.length)];
   const chosen = TOPIC_NAMES.includes(topic) ? topic : TOPIC_NAMES[rand(TOPIC_NAMES.length)];
 
   const parts = [];
+  const used = new Set();
   let words = 0;
   const enough = () => words >= target * 0.9;
-  const add = (s) => {
-    parts.push(s);
-    words += countWords(s);
+  const add = (sentence) => {
+    parts.push(sentence);
+    used.add(sentence);
+    words += countWords(sentence);
   };
 
-  // consecutive sentences from random passages (keeps the text readable)
+  // consecutive sentences from a random passage (keeps the text readable), starting somewhere fresh
   const fillGeneral = () => {
     let guard = 0;
-    while (!enough() && guard++ < 60) {
+    while (!enough() && guard++ < 120) {
       const sentences = PASSAGE_SENTENCES[lang][rand(PASSAGE_SENTENCES[lang].length)];
-      for (let i = rand(sentences.length); i < sentences.length && !enough(); i++) {
+      let i = rand(sentences.length);
+      if (guard <= 60 && (skip.has(sentences[i]) || used.has(sentences[i]))) continue;
+      for (; i < sentences.length && !enough(); i++) {
+        if (used.has(sentences[i])) break;
         const w = countWords(sentences[i]);
         if (words > 0 && words + w > target * 1.25) break;
         add(sentences[i]);
@@ -89,29 +106,34 @@ function buildText(lang = 'en', topic = 'mix', wordCount) {
     }
   };
 
-  // random standalone sentences from a topic pool (never repeats a sentence)
+  // random standalone sentences, never the same sentence twice in one text
   const fillFrom = (pool) => {
-    for (const s of pool) {
+    for (const sentence of pool) {
       if (enough()) break;
-      const w = countWords(s);
+      if (used.has(sentence)) continue;
+      const w = countWords(sentence);
       if (words > 0 && words + w > target * 1.25) continue;
-      add(s);
+      add(sentence);
     }
   };
+  const fresh = (pool) => shuffle(pool.filter((x) => !skip.has(x)));
+  const stale = (pool) => shuffle(pool.filter((x) => skip.has(x)));
 
-  if (chosen === 'general') {
-    fillGeneral();
-  } else {
-    fillFrom(shuffle(TOPICS[lang][chosen]));
-    if (!enough()) {
-      // long texts (timed tests) can use the other science/history topics too
-      const others = TOPIC_NAMES.filter((t) => t !== 'general' && t !== chosen).flatMap((t) => TOPICS[lang][t]);
-      fillFrom(shuffle(others));
-    }
-  }
+  const own = chosen === 'general' ? [] : TOPICS[lang][chosen];
+  const others = TOPIC_NAMES.filter((t) => t !== 'general' && t !== chosen).flatMap((t) => TOPICS[lang][t]);
+
+  if (chosen === 'general') fillGeneral();
+  else fillFrom(fresh(own));
+  if (!enough()) fillFrom(fresh(others));   // long texts (timed tests) can use the other topics too
   if (!enough()) fillGeneral();
+  if (!enough()) fillFrom(stale(own));      // everything fresh is used up: the oldest sentences may return
+  if (!enough()) fillFrom(stale(others));
 
-  return parts.join(' ');
+  return { text: parts.join(' '), parts };
+}
+
+function buildText(lang, topic, wordCount, avoid) {
+  return buildTextParts(lang, topic, wordCount, avoid).text;
 }
 
 // 'bn' if the text contains any Bengali-script character, else 'en'
@@ -119,4 +141,4 @@ function detectLanguage(text) {
   return /[\u0980-\u09FF]/.test(text) ? 'bn' : 'en';
 }
 
-module.exports = { PASSAGES, buildText, detectLanguage, TOPIC_NAMES };
+module.exports = { PASSAGES, TOPICS, buildText, buildTextParts, detectLanguage, TOPIC_NAMES };
