@@ -19,6 +19,32 @@ const pool = new Pool({
 });
 pool.on('error', (err) => console.error('[db] idle client error:', err.message));
 
+// How many games are kept in the history of each player. Older games are deleted to save space.
+// The all-time records (best speed, average, wins) live in player_stats, so they are never lost.
+const HISTORY_LIMIT = 20;
+
+// Rebuild the all-time records from games that already exist (runs once, when player_stats is empty).
+const BACKFILL_SQL = `
+  INSERT INTO player_stats (user_id, language, best_wpm, best_accuracy, best_time, best_at, games, sum_wpm, sum_accuracy, wins)
+  SELECT s.user_id, s.language, MAX(s.wpm),
+         (SELECT b.accuracy FROM scores b WHERE b.user_id = s.user_id AND b.language = s.language AND b.mode <> 'custom' ORDER BY b.wpm DESC, b.id DESC LIMIT 1),
+         (SELECT b.time_seconds FROM scores b WHERE b.user_id = s.user_id AND b.language = s.language AND b.mode <> 'custom' ORDER BY b.wpm DESC, b.id DESC LIMIT 1),
+         (SELECT b.played_at FROM scores b WHERE b.user_id = s.user_id AND b.language = s.language AND b.mode <> 'custom' ORDER BY b.wpm DESC, b.id DESC LIMIT 1),
+         COUNT(*), SUM(s.wpm), SUM(s.accuracy),
+         SUM(CASE WHEN s.mode = 'race' AND s.place_no = 1 THEN 1 ELSE 0 END)
+  FROM scores s
+  WHERE s.mode <> 'custom'
+  GROUP BY s.user_id, s.language`;
+
+// Keep only the newest HISTORY_LIMIT games of every player.
+const TRIM_ALL_SQL = `
+  DELETE FROM scores WHERE id IN (
+    SELECT id FROM (
+      SELECT id, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY played_at DESC, id DESC) AS rn FROM scores
+    ) ranked
+    WHERE rn > ${HISTORY_LIMIT}
+  )`;
+
 async function init() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS settings (
@@ -49,7 +75,27 @@ async function init() {
     );
     CREATE INDEX IF NOT EXISTS idx_scores_user ON scores(user_id);
     CREATE INDEX IF NOT EXISTS idx_scores_lang ON scores(language, wpm DESC);
+
+    -- All-time records: one small row per player and language. Custom-text games are never counted here.
+    CREATE TABLE IF NOT EXISTS player_stats (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      language TEXT NOT NULL,
+      best_wpm REAL NOT NULL DEFAULT 0,
+      best_accuracy REAL NOT NULL DEFAULT 0,
+      best_time REAL NOT NULL DEFAULT 0,
+      best_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      games INTEGER NOT NULL DEFAULT 0,
+      sum_wpm DOUBLE PRECISION NOT NULL DEFAULT 0,
+      sum_accuracy DOUBLE PRECISION NOT NULL DEFAULT 0,
+      wins INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (user_id, language)
+    );
   `);
+
+  // Games saved before player_stats existed: turn them into records first, then trim the history.
+  const have = await pool.query('SELECT COUNT(*)::int AS n FROM player_stats');
+  if (have.rows[0].n === 0) await pool.query(BACKFILL_SQL);
+  await pool.query(TRIM_ALL_SQL);
   console.log('[db] ready');
 }
 
@@ -95,48 +141,83 @@ async function loginUser(username, password) {
   return { id: user.id, username: user.username, avatar: user.avatar || null };
 }
 
-async function saveScore(userId, wpm, accuracy, timeSeconds, place_no, roomCode, language = 'en', mode = 'race') {
-  await pool.query(
-    `INSERT INTO scores (user_id, wpm, accuracy, time_seconds, place_no, room_code, language, mode)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-    [userId, wpm, accuracy, timeSeconds, place_no, roomCode || null, language, mode]
-  );
+// Saves one finished game:
+//  - it always goes into the history (newest 20 per player are kept),
+//  - and, unless it used custom text, it also updates the player's all-time records.
+async function saveScore(userId, wpm, accuracy, timeSeconds, placeNo, roomCode, language = 'en', mode = 'race') {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `INSERT INTO scores (user_id, wpm, accuracy, time_seconds, place_no, room_code, language, mode)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [userId, wpm, accuracy, timeSeconds, placeNo, roomCode || null, language, mode]
+    );
+    if (mode !== 'custom') {
+      await client.query(
+        `INSERT INTO player_stats (user_id, language, best_wpm, best_accuracy, best_time, best_at, games, sum_wpm, sum_accuracy, wins)
+         VALUES ($1::int, $2::text, $3::real, $4::real, $5::real, NOW(), 1, $6::double precision, $7::double precision, $8::int)
+         ON CONFLICT (user_id, language) DO UPDATE SET
+           best_accuracy = CASE WHEN EXCLUDED.best_wpm > player_stats.best_wpm THEN EXCLUDED.best_accuracy ELSE player_stats.best_accuracy END,
+           best_time = CASE WHEN EXCLUDED.best_wpm > player_stats.best_wpm THEN EXCLUDED.best_time ELSE player_stats.best_time END,
+           best_at = CASE WHEN EXCLUDED.best_wpm > player_stats.best_wpm THEN EXCLUDED.best_at ELSE player_stats.best_at END,
+           best_wpm = GREATEST(player_stats.best_wpm, EXCLUDED.best_wpm),
+           games = player_stats.games + 1,
+           sum_wpm = player_stats.sum_wpm + EXCLUDED.sum_wpm,
+           sum_accuracy = player_stats.sum_accuracy + EXCLUDED.sum_accuracy,
+           wins = player_stats.wins + EXCLUDED.wins`,
+        [userId, language, wpm, accuracy, timeSeconds, wpm, accuracy, mode === 'race' && placeNo === 1 ? 1 : 0]
+      );
+    }
+    await client.query(
+      `DELETE FROM scores WHERE user_id = $1 AND id NOT IN (
+         SELECT id FROM scores WHERE user_id = $1 ORDER BY played_at DESC, id DESC LIMIT ${HISTORY_LIMIT}
+       )`,
+      [userId]
+    );
+    await client.query('COMMIT');
+  } catch (e) {
+    try { await client.query('ROLLBACK'); } catch (ignore) { /* already closed */ }
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
-// Best score per player, per language. Custom-text games never count.
+// Best speed of every player, per language (custom-text games are not counted).
 async function getLeaderboard(language = 'en', limit = 20) {
   const r = await pool.query(
-    `SELECT username, wpm, accuracy, time_seconds, played_at FROM (
-       SELECT DISTINCT ON (s.user_id) u.username, s.wpm, s.accuracy, s.time_seconds, s.played_at
-       FROM scores s JOIN users u ON u.id = s.user_id
-       WHERE s.language = $1 AND s.mode <> 'custom'
-       ORDER BY s.user_id, s.wpm DESC
-     ) best
-     ORDER BY wpm DESC
+    `SELECT u.username, p.best_wpm AS wpm, p.best_accuracy AS accuracy, p.best_time AS time_seconds, p.best_at AS played_at
+     FROM player_stats p JOIN users u ON u.id = p.user_id
+     WHERE p.language = $1
+     ORDER BY p.best_wpm DESC, p.best_at ASC
      LIMIT $2`,
     [language === 'bn' ? 'bn' : 'en', limit]
   );
   return r.rows;
 }
 
+// Records come from player_stats (all-time, no custom text). History is the newest games, custom text included.
 async function getUserStats(userId) {
   const [best, byLanguage, recent] = await Promise.all([
     pool.query(
-      `SELECT MAX(wpm)::float AS best_wpm, AVG(wpm)::float AS avg_wpm, AVG(accuracy)::float AS avg_accuracy,
-              COUNT(*)::int AS races,
-              COALESCE(SUM(CASE WHEN mode = 'race' AND place_no = 1 THEN 1 ELSE 0 END), 0)::int AS wins
-       FROM scores WHERE user_id = $1`,
+      `SELECT MAX(best_wpm)::float AS best_wpm,
+              (SUM(sum_wpm) / NULLIF(SUM(games), 0))::float AS avg_wpm,
+              (SUM(sum_accuracy) / NULLIF(SUM(games), 0))::float AS avg_accuracy,
+              COALESCE(SUM(games), 0)::int AS races,
+              COALESCE(SUM(wins), 0)::int AS wins
+       FROM player_stats WHERE user_id = $1`,
       [userId]
     ),
     pool.query(
-      `SELECT language, MAX(wpm)::float AS best_wpm, COUNT(*)::int AS races
-       FROM scores WHERE user_id = $1 GROUP BY language`,
+      `SELECT language, best_wpm::float AS best_wpm, games::int AS races
+       FROM player_stats WHERE user_id = $1 ORDER BY language`,
       [userId]
     ),
     pool.query(
       `SELECT wpm, accuracy, time_seconds, place_no AS rank, language, mode, played_at
        FROM scores WHERE user_id = $1
-       ORDER BY played_at DESC, id DESC LIMIT 20`,
+       ORDER BY played_at DESC, id DESC LIMIT ${HISTORY_LIMIT}`,
       [userId]
     )
   ]);
@@ -183,6 +264,7 @@ module.exports = {
   saveScore,
   getLeaderboard,
   getUserStats,
+  HISTORY_LIMIT,
   findUserById,
   findUserByUsername,
   deleteUser,
