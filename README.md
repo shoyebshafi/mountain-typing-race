@@ -9,6 +9,7 @@ A multiplayer typing race game. Log in with a username and password, create a pr
 - **Custom rooms** with a private 6-character room code. Up to 8 players can join, and the host can start the race with any number of players (2, 3, 4...)
 - **3-2-1 countdown** before every race, so everyone starts together
 - **A real rock-face climb**: every player has their own real rope hanging from an anchor bolt on a tall cliff. Your climber is an articulated human who climbs on **all four limbs** (diagonal hand and foot moves), with a live altitude meter, a rank badge and a victory pose at the summit. Want a photo instead? Drop a wide mountain photo at `frontend/img/mountain.jpg` and the game uses it as the background automatically
+- **Records and history**: your best speed, average, accuracy, wins and the leaderboard come from all-time records that never expire. **Custom-text games never count** for records or the leaderboard; they appear only in your history. The history keeps your **last 20 games**, older ones are deleted to save space (your records are kept)
 - **Player profiles**: click any name on the leaderboard to see that player's climber, stats and graph
 - **Delete account**: at the bottom of your own profile (needs your password; deletes your scores too)
 - **Climber editor** on your profile page: skin tone, hair style and color, jacket / hoodie / T-shirt / sleeveless, shorts or long pants, shoes, headwear, backpack and any color you like. Everyone in your race sees your climber
@@ -25,7 +26,7 @@ A multiplayer typing race game. Log in with a username and password, create a pr
 - **Bangla-safe typing**: text is Unicode-normalized, invisible zero-width characters are ignored, and keyboard differences (Bangla vs ASCII digits, `।` vs `.`) all count as correct, so the race always finishes when you finish typing
 - **Always logged in**: you stay logged in on every device until you press Logout
 - **Result box for room races** (inspired by typing-race sites): the moment you finish, a result box opens with your rank, WPM, accuracy, consistency and time, while you keep watching the other climbers and a live standings table. You can leave the room whenever you like, and the host can start a rematch when everyone is done
-- **Huge random text storage**: every race builds a fresh text of 20, 30, 40 or 60 words (random) from general passages and topic sentences: **Biology, Chemistry, Physics and Bengal History**, in both English and Bangla. Hosts and practice players can pick a topic and a length, or leave it on random. Add more sentences in `backend/topics.js`
+- **Huge random text storage**: about 280 sentences per language (and growing) in 6 topics: **Biology, Chemistry, Physics, Bengal History, Geography and Technology**, plus general passages, in both English and Bangla. Every race builds a fresh text of 20, 30, 40 or 60 words, and the game remembers what a room or player had recently, so texts do not come back again and again. Hosts and practice players can pick a topic and a length, or leave it on random. Add more sentences in `backend/topics.js`, `topics_extra_bn.js` and `topics_extra_en.js`
 - **Fair play**: WPM, accuracy and finishing are calculated on the server; pasting is blocked; you must finish the text without errors
 - **Races never hang**: every race has a time limit; players who do not finish appear as "Did not finish"
 
@@ -77,8 +78,10 @@ mountain-typing-race/
 │   ├── server.js      # Express + Socket.io (rooms, countdown, validation, practice)
 │   ├── db.js          # PostgreSQL storage (users, scores, avatars, login secret)
 │   ├── avatar.js      # Validation of climber looks
-│   ├── texts.js       # Random text generator (20/30/40/60 words) + general passages
-│   ├── topics.js      # Biology, chemistry, physics and Bengal history sentences
+│   ├── texts.js       # Random text generator (20/30/40/60 words), avoids recent texts
+│   ├── topics.js      # Topic sentences (first list)
+│   ├── topics_extra_bn.js  # More Bangla sentences + Geography and Technology
+│   ├── topics_extra_en.js  # More English sentences + Geography and Technology
 │   ├── package.json
 ├── frontend/
 │   ├── index.html
