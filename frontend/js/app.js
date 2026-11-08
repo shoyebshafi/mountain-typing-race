@@ -595,7 +595,8 @@ function renderProfile(stats) {
     .map(([k, v]) => `<div class="stat-card"><div class="k">${k}</div><div class="v">${v}</div></div>`)
     .join('');
 
-  renderChart(stats.recent || []);
+  // the graph shows normal games only; the history list shows everything (custom text too)
+  renderChart((stats.recent || []).filter((r) => r.mode !== 'custom'));
   renderRecent(stats.recent || []);
 }
 
