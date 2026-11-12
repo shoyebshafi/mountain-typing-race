@@ -76,8 +76,8 @@ function calcTimedStats(prep, typed, durationSec) {
 }
 
 // Builds a fresh text that avoids what this room / player had recently, so texts do not repeat.
-function freshText(memories, lang, topic, words) {
-  const built = buildTextParts(lang, topic, words, new Set(memories.flat()));
+function freshText(memories, lang, words) {
+  const built = buildTextParts(lang, words, new Set(memories.flat()));
   memories.forEach((m) => {
     m.push(...built.parts);
     while (m.length > 200) m.shift();
@@ -318,7 +318,7 @@ io.on('connection', (socket) => {
     io.to(socket.roomCode).emit('room_updated', { room: publicRoom(room) });
   });
 
-  socket.on('start_race', ({ language = 'en', topic = 'mix', words } = {}) => {
+  socket.on('start_race', ({ language = 'en', words } = {}) => {
     const room = rooms[socket.roomCode];
     if (!room || room.hostId !== socket.id || room.status !== 'waiting') return;
 
@@ -326,7 +326,7 @@ io.on('connection', (socket) => {
       room.language = detectLanguage(room.text);
     } else {
       room.language = language === 'bn' ? 'bn' : 'en';
-      room.text = freshText([room.recent, (socket.recent = socket.recent || [])], room.language, topic, words);
+      room.text = freshText([room.recent, (socket.recent = socket.recent || [])], room.language, words);
     }
     room.prep = Scoring.prepare(room.text);
     room.timeLimit = Math.min(900, Math.max(60, Math.ceil(room.prep.length / 1.5)));
@@ -416,7 +416,7 @@ io.on('connection', (socket) => {
   });
 
   // ---------- Practice (solo): random text, custom text, 30s / 60s tests ----------
-  socket.on('practice_start', ({ mode = 'random', duration, language = 'en', topic = 'mix', words, customText } = {}) => {
+  socket.on('practice_start', ({ mode = 'random', duration, language = 'en', words, customText } = {}) => {
     const lang = language === 'bn' ? 'bn' : 'en';
     let text, saveMode, secs = 0, textLang = lang;
 
@@ -431,10 +431,10 @@ io.on('connection', (socket) => {
     } else if (mode === 'timed') {
       secs = Number(duration) === 60 ? 60 : 30;
       // plenty of text so nobody can run out before the clock does
-      text = freshText([(socket.recent = socket.recent || [])], lang, topic, secs === 60 ? 260 : 140);
+      text = freshText([(socket.recent = socket.recent || [])], lang, secs === 60 ? 260 : 140);
       saveMode = 'timed';
     } else {
-      text = freshText([(socket.recent = socket.recent || [])], lang, topic, words);
+      text = freshText([(socket.recent = socket.recent || [])], lang, words);
       saveMode = 'practice';
     }
 
