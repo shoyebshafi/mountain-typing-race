@@ -506,7 +506,6 @@ $('#practiceStartBtn').addEventListener('click', () => {
     return;
   }
   const language = $('#practiceLang').value;
-  const topic = $('#practiceTopic').value;
   let payload;
   if (practiceMode === 'custom') {
     const customText = $('#practiceCustomText').value.trim();
@@ -516,9 +515,9 @@ $('#practiceStartBtn').addEventListener('click', () => {
     }
     payload = { mode: 'custom', customText };
   } else if (practiceMode === 'random') {
-    payload = { mode: 'random', language, topic, words: $('#practiceWords').value };
+    payload = { mode: 'random', language, words: $('#practiceWords').value };
   } else {
-    payload = { mode: 'timed', duration: practiceMode === 't60' ? 60 : 30, language, topic };
+    payload = { mode: 'timed', duration: practiceMode === 't60' ? 60 : 30, language };
   }
   state.lastPractice = payload;
   sfx.tick();
@@ -711,7 +710,6 @@ $('#startRaceBtn').addEventListener('click', () => {
   if (text.length >= 20) state.socket.emit('set_text', { text });
   state.socket.emit('start_race', {
     language: $('#raceLang').value,
-    topic: $('#raceTopic').value,
     words: $('#raceWords').value
   });
 });
