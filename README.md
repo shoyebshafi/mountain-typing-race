@@ -26,7 +26,7 @@ A multiplayer typing race game. Log in with a username and password, create a pr
 - **Bangla-safe typing**: text is Unicode-normalized, invisible zero-width characters are ignored, and keyboard differences (Bangla vs ASCII digits, `।` vs `.`) all count as correct, so the race always finishes when you finish typing
 - **Always logged in**: you stay logged in on every device until you press Logout
 - **Result box for room races** (inspired by typing-race sites): the moment you finish, a result box opens with your rank, WPM, accuracy, consistency and time, while you keep watching the other climbers and a live standings table. You can leave the room whenever you like, and the host can start a rematch when everyone is done
-- **Huge random text storage**: about 280 sentences per language (and growing) in 6 topics: **Biology, Chemistry, Physics, Bengal History, Geography and Technology**, plus general passages, in both English and Bangla. Every race builds a fresh text of 20, 30, 40 or 60 words, and the game remembers what a room or player had recently, so texts do not come back again and again. Hosts and practice players can pick a topic and a length, or leave it on random. Add more sentences in `backend/topics.js`, `topics_extra_bn.js` and `topics_extra_en.js`
+- **Huge random text storage**: nearly 300 lines per language, all in ONE file, `backend/texts.js` (one list for Bangla, one for English). Every race builds a fresh text of 20, 30, 40 or 60 words, and the game remembers what a room or player had recently, so texts do not come back again and again (a repeat shows up only after about 70 to 90 races). To add texts, just add lines to the list of that language
 - **Fair play**: WPM, accuracy and finishing are calculated on the server; pasting is blocked; you must finish the text without errors
 - **Races never hang**: every race has a time limit; players who do not finish appear as "Did not finish"
 
@@ -78,10 +78,7 @@ mountain-typing-race/
 │   ├── server.js      # Express + Socket.io (rooms, countdown, validation, practice)
 │   ├── db.js          # PostgreSQL storage (users, scores, avatars, login secret)
 │   ├── avatar.js      # Validation of climber looks
-│   ├── texts.js       # Random text generator (20/30/40/60 words), avoids recent texts
-│   ├── topics.js      # Topic sentences (first list)
-│   ├── topics_extra_bn.js  # More Bangla sentences + Geography and Technology
-│   ├── topics_extra_en.js  # More English sentences + Geography and Technology
+│   ├── texts.js       # ALL the texts (Bangla + English) and the random text generator
 │   ├── package.json
 ├── frontend/
 │   ├── index.html
