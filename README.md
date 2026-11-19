@@ -12,6 +12,7 @@ A multiplayer typing race game. Log in with a username and password, create a pr
 - **Records and history**: your best speed, average, accuracy, wins and the leaderboard come from all-time records that never expire. **Custom-text games never count** for records or the leaderboard; they appear only in your history. The history keeps your **last 20 games**, older ones are deleted to save space (your records are kept)
 - **Player profiles**: click any name on the leaderboard to see that player's climber, stats and graph
 - **Delete account**: at the bottom of your own profile (needs your password; deletes your scores too)
+- **A lake at the foot of the mountain**: the climbers start at the water's edge and the ropes hang into the water. If a player leaves the room (or loses the connection) during a race, he falls from where he was, flailing, and splashes into the lake while the others keep climbing
 - **Climber editor** on your profile page: skin tone, hair style and color, jacket / hoodie / T-shirt / sleeveless, shorts or long pants, shoes, headwear, backpack and any color you like. Everyone in your race sees your climber
 - **Your data is permanent**: users, scores, history, leaderboard and avatars live in a PostgreSQL database, so nothing is lost when the site redeploys or restarts
 - **Single-box typing**: you type directly on the text you read. Typed text is highlighted step by step, mistakes turn red, and long passages scroll automatically
