@@ -140,6 +140,28 @@ const sfx = {
   error: () => beep(150, 0.12, 'sawtooth', 0.035),
   tick: () => beep(520, 0.12, 'sine', 0.07),
   go: () => beep(880, 0.3, 'sine', 0.09),
+  splash: () => {
+    if (!state.sound) return;
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const len = Math.floor(audioCtx.sampleRate * 0.5);
+      const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2);
+      const src = audioCtx.createBufferSource();
+      src.buffer = buf;
+      const lp = audioCtx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 1100;
+      const g = audioCtx.createGain();
+      g.gain.value = 0.16;
+      src.connect(lp);
+      lp.connect(g);
+      g.connect(audioCtx.destination);
+      src.start();
+    } catch { /* audio not available */ }
+  },
   finish: () => [523, 659, 784, 1047].forEach((f, i) => beep(f, 0.18, 'triangle', 0.07, i * 0.12))
 };
 
@@ -287,7 +309,7 @@ function connectSocket() {
     if (isVisible('result')) updateResultButtons();
     if (isVisible('race') && state.mode === 'race') {
       const leftPlayer = document.querySelector(`.hiker[data-user="${CSS.escape(leftUsername || '')}"]`);
-      if (leftPlayer) leftPlayer.classList.add('gone');
+      if (leftPlayer) dropHiker(leftPlayer);
       const gone = Object.values(state.standings).find((x) => x.username === leftUsername);
       if (gone) gone.left = true;
       if (!$('#racePanel').classList.contains('hidden')) renderRacePanel();
@@ -942,7 +964,8 @@ function updateQuote(ev) {
 // ----- The mountain: a rock face seen from the front. Every player climbs their own lane. -----
 const SUMMIT_METERS = 3000;
 // Scene units (the scene is 1000 x 620): feet at the foot of the wall -> feet on the summit ridge
-const START_Y = 592;
+const START_Y = 548;      // feet just above the water line
+const WATER_Y = 588;      // where a climber who falls hits the water
 const TOP_Y = 188;
 
 function laneX(slot, count) {
@@ -950,20 +973,24 @@ function laneX(slot, count) {
   return 500 + (slot - (count - 1) / 2) * gap;
 }
 
-// pine trees at the foot of the mountain
+// The lake at the foot of the mountain: foam, slow waves and sparkles.
 function buildScene() {
   let seed = 7;
   const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-  let trees = '';
-  for (let x = 10; x < 1000; x += 24) {
-    const y = 574 + rnd() * 38;
-    const h = 26 + rnd() * 22;
-    const w = 8 + rnd() * 5;
-    trees += `<g><rect x="${x - 1.5}" y="${y}" width="3" height="7" fill="#33241a"/>` +
-      `<polygon points="${x},${y - h} ${x - w},${y + 3} ${x + w},${y + 3}" fill="#06291e"/>` +
-      `<polygon points="${x},${y - h - 9} ${x - w * 0.7},${y - h + 14} ${x + w * 0.7},${y - h + 14}" fill="#0a3828"/></g>`;
+  const W = 56; // one wave is 56 units wide, so the sliding animation loops without a jump
+  const wave = (y, amp) => {
+    let d = `M${-W} ${y}`;
+    for (let x = -W; x < 1000 + W; x += W) d += ` q ${W / 4} ${-amp} ${W / 2} 0 t ${W / 2} 0`;
+    return d;
+  };
+  let html = `<path class="wave foam" d="${wave(557, 3)}"/>`;
+  [[568, 3.5, 0.4, 9], [578, 4, 0.32, 12], [588, 4.5, 0.27, 15], [599, 5, 0.22, 19], [610, 5.5, 0.18, 24]].forEach(([y, amp, op, sec], i) => {
+    html += `<path class="wave" style="animation-duration:${sec}s;animation-direction:${i % 2 ? 'reverse' : 'normal'};opacity:${op}" d="${wave(y, amp)}"/>`;
+  });
+  for (let i = 0; i < 20; i++) {
+    html += `<ellipse class="twinkle" cx="${Math.round(rnd() * 1000)}" cy="${Math.round(566 + rnd() * 50)}" rx="${(3 + rnd() * 6).toFixed(1)}" ry="0.9" fill="#fff" opacity="0.6" style="animation-delay:${(rnd() * 3).toFixed(1)}s"/>`;
   }
-  $('#trees').innerHTML = trees;
+  $('#waves').innerHTML = html;
 }
 buildScene();
 
@@ -992,6 +1019,48 @@ function placeHiker(el, progress) {
   el.style.zIndex = String(Math.round(y));
 }
 
+// Someone left the room: he falls from where he was, flailing, and splashes into the lake.
+function dropHiker(el) {
+  if (el.classList.contains('falling')) return;
+  el.classList.remove('summit', 'walking');
+  el.classList.add('falling');
+  const fromY = (parseFloat(el.style.top) || 0) * 6.2;      // scene units
+  const x = parseFloat(el.style.left) || 50;                 // percent of the scene width
+  const t = 0.3 + Math.max(WATER_Y + 24 - fromY, 25) / 560;  // a longer fall takes a little longer
+  const spin = (Math.random() < 0.5 ? -1 : 1) * (50 + Math.random() * 90);
+  el.style.zIndex = '40';
+  el.style.transition = `top ${t}s cubic-bezier(0.5, 0, 0.9, 0.55), transform ${t}s ease-in, opacity 0.3s`;
+  // the body turns while it falls, so its middle reaches the water a little after its feet would: land a bit lower
+  el.style.top = (WATER_Y + 24) / 6.2 + '%';
+  el.style.transform = `translate(-50%, -100%) rotate(${spin}deg)`;
+  startGait();
+  setTimeout(() => {
+    spawnSplash(x, WATER_Y);
+    sfx.splash();
+    el.style.transition = 'top 0.9s ease-in, opacity 0.9s ease-in, transform 0.9s ease-in';
+    el.style.top = (WATER_Y + 50) / 6.2 + '%';
+    el.style.opacity = '0';
+    el.style.transform = `translate(-50%, -100%) rotate(${spin * 1.4}deg)`;
+    setTimeout(() => el.remove(), 1000);
+  }, t * 1000);
+}
+
+function spawnSplash(leftPct, y) {
+  const s = document.createElement('div');
+  s.className = 'splash';
+  s.style.left = leftPct + '%';
+  s.style.top = y / 6.2 + '%';
+  let drops = '';
+  for (let i = 0; i < 9; i++) {
+    const dx = (i - 4) * 9 + (Math.random() * 6 - 3);
+    const dy = -(22 + Math.random() * 26);
+    drops += `<b style="--dx:${dx}px;--dy:${dy}px"></b>`;
+  }
+  s.innerHTML = '<i class="ring"></i><i class="ring r2"></i>' + drops;
+  $('#mountainTrack').appendChild(s);
+  setTimeout(() => s.remove(), 1300);
+}
+
 // The climbing gait: while a player is moving up, their hands and feet keep reaching for the next hold.
 let gaitRaf = 0;
 let gaitLast = 0;
@@ -1002,7 +1071,11 @@ function gaitLoop(ts) {
   document.querySelectorAll('#climbersContainer .hiker').forEach((el) => {
     const svg = el._svg || (el._svg = el.querySelector('.hiker-fig'));
     if (!svg) return;
-    if (el.classList.contains('summit')) {
+    if (el.classList.contains('falling')) {
+      // arms and legs flail while he falls
+      Hiker.applyPose(svg, Hiker.computePose(0, true, (ts / 1000) * 2.4 + Number(el.dataset.slot || 0)));
+      active = true;
+    } else if (el.classList.contains('summit')) {
       Hiker.applyPose(svg, Hiker.computePose(0, true, ts / 1000 + Number(el.dataset.slot || 0) * 0.7));
       active = true;
     } else if (el._moveUntil && el._moveUntil > ts) {
@@ -1022,7 +1095,7 @@ function startGait() {
 
 function updateClimber(id, progress, extra = {}) {
   const el = document.getElementById(`climber-${id}`);
-  if (!el) return;
+  if (!el || el.classList.contains('falling')) return;
 
   if (progress !== undefined) {
     const prev = parseFloat(el.dataset.progress || '0');
