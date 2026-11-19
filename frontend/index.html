@@ -348,6 +348,19 @@
               <stop offset=".55" stop-color="#000" stop-opacity="0" />
               <stop offset="1" stop-color="#000" stop-opacity=".5" />
             </radialGradient>
+            <linearGradient id="wetRock" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#0a1018" stop-opacity="0" />
+              <stop offset="1" stop-color="#0a1018" stop-opacity=".55" />
+            </linearGradient>
+            <linearGradient id="waterGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#4f9fbf" />
+              <stop offset=".5" stop-color="#1f6585" />
+              <stop offset="1" stop-color="#0b2f4d" />
+            </linearGradient>
+            <linearGradient id="waterShadow" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#06111b" stop-opacity=".6" />
+              <stop offset="1" stop-color="#06111b" stop-opacity="0" />
+            </linearGradient>
             <clipPath id="wallClip">
               <path d="M0 140 L40 126 L95 134 L150 114 L215 128 L285 108 L350 124 L420 104 L500 120 L570 106 L640 126 L710 110 L790 130 L860 112 L930 128 L1000 116 L1000 620 L0 620 Z" />
             </clipPath>
@@ -396,24 +409,22 @@
             <path d="M0 140 L40 126 L95 134 L150 114 L215 128 L285 108 L350 124 L420 104 L500 120 L570 106 L640 126 L710 110 L790 130 L860 112 L930 128 L1000 116 L1000 132 L960 146 L930 140 L890 154 L860 132 L820 152 L790 144 L750 158 L710 130 L670 150 L640 142 L600 162 L570 128 L530 152 L500 140 L460 160 L420 126 L380 152 L350 144 L310 162 L285 130 L240 152 L215 144 L180 160 L150 134 L110 154 L95 150 L60 146 L40 144 L0 158 Z" fill="#f4f8fc" />
             <path d="M0 158 L40 144 L60 146 L95 150 L110 154 L150 134 L180 160 L215 144 L240 152 L285 130 L310 162 L350 144 L380 152 L420 126 L460 160 L500 140 L530 152 L570 128 L600 162 L640 142 L670 150 L710 130 L750 158 L790 144 L820 152 L860 132 L890 154 L930 140 L960 146 L1000 132 L1000 138 L960 152 L930 146 L890 160 L860 138 L820 158 L790 150 L750 164 L710 136 L670 156 L640 148 L600 168 L570 134 L530 158 L500 146 L460 166 L420 132 L380 158 L350 150 L310 168 L285 136 L240 158 L215 150 L180 166 L150 140 L110 160 L95 156 L60 152 L40 150 L0 164 Z" fill="#8aa3c2" opacity=".55" />
 
-            <!-- forest at the foot of the mountain -->
-            <path d="M0 620 L0 578 L90 566 L200 580 L330 570 L470 584 L600 572 L740 582 L880 568 L1000 580 L1000 620 Z" fill="#0f2a22" />
-            <g id="trees"></g>
-            <rect y="440" width="1000" height="180" fill="url(#fog)" />
+            <!-- wet, dark rock just above the water line -->
+            <rect y="500" width="1000" height="60" fill="url(#wetRock)" />
           </g>
 
-          <!-- base camp -->
-          <g class="camp">
-            <polygon points="36,612 62,578 88,612" fill="#f97316" />
-            <polygon points="62,578 76,612 88,612" fill="#c2410c" />
-            <polygon points="912,614 934,584 956,614" fill="#38bdf8" />
-            <polygon points="934,584 946,614 956,614" fill="#0284c7" />
+          <!-- the lake at the foot of the mountain -->
+          <g class="water">
+            <rect y="556" width="1000" height="64" fill="url(#waterGrad)" />
+            <rect y="556" width="1000" height="28" fill="url(#waterShadow)" />
+            <g id="waves"></g>
           </g>
           <rect width="1000" height="620" fill="url(#vig)" />
         </svg>
 
         <div class="lanes" id="lanesLayer"></div>
         <div class="hikers" id="climbersContainer"></div>
+        <div class="water-front" aria-hidden="true"></div>
         <div id="countdown" class="countdown hidden" aria-live="assertive">3</div>
         <div class="summit-label">🏁 Summit · 3,000 m</div>
       </div>
