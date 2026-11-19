@@ -1004,3 +1004,44 @@ table.recent td.wpm { color: var(--primary); font-weight: 700; }
   background: rgba(56, 189, 248, 0.15);
   border: 1px solid rgba(56, 189, 248, 0.35);
 }
+
+
+/* ===================== the lake and the splash ===================== */
+.wave { fill: none; stroke: #cfeefa; stroke-width: 2; stroke-linecap: round; animation: wave-drift linear infinite; }
+.wave.foam { stroke: #f4fbff; stroke-width: 3.5; opacity: 0.9; animation-duration: 7s; }
+@keyframes wave-drift { from { transform: translateX(0); } to { transform: translateX(-56px); } }
+
+/* a see-through layer of water in front of the climbers: whoever sinks looks like he is under water */
+.water-front {
+  position: absolute;
+  left: 0; right: 0;
+  top: 94.5%; bottom: 0;
+  z-index: 4;
+  pointer-events: none;
+  background: linear-gradient(to bottom, rgba(36, 110, 150, 0), rgba(10, 50, 80, 0.62));
+}
+
+.splash { position: absolute; width: 0; height: 0; z-index: 30; pointer-events: none; }
+.splash .ring {
+  position: absolute;
+  left: -11px; top: -4px;
+  width: 22px; height: 8px;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  animation: ring-out 1s ease-out forwards;
+}
+.splash .ring.r2 { animation-delay: 0.18s; }
+@keyframes ring-out { from { transform: scale(0.3); opacity: 1; } to { transform: scale(5.5); opacity: 0; } }
+.splash b {
+  position: absolute;
+  left: -2px; top: -2px;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: #e6f6ff;
+  animation: drop-out 0.85s ease-out forwards;
+}
+@keyframes drop-out {
+  0%   { transform: translate(0, 0); opacity: 1; }
+  55%  { transform: translate(var(--dx), var(--dy)); opacity: 1; }
+  100% { transform: translate(calc(var(--dx) * 1.25), calc(var(--dy) + 38px)); opacity: 0; }
+}
